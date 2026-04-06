@@ -34,6 +34,7 @@ import {
   UserCircle,
   GraduationCap,
   Users,
+  LogIn,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -41,14 +42,14 @@ import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { Button } from "./ui/button";
 
 const menuItems = [
-  { icon: LayoutDashboard, label: "대시보드", path: "/" },
-  { icon: Brain, label: "전공 적성 분석", path: "/aptitude" },
-  { icon: Search, label: "학과/직업 탐색", path: "/explore" },
-  { icon: Map, label: "입시 로드맵", path: "/roadmap" },
-  { icon: FileText, label: "생기부/자소서", path: "/documents" },
-  { icon: MessageSquare, label: "면접 연습", path: "/interview" },
-  { icon: Users, label: "커뮤니티", path: "/community" },
-  { icon: UserCircle, label: "마이페이지", path: "/mypage" },
+  { icon: LayoutDashboard, label: "대시보드", path: "/", requiresAuth: true },
+  { icon: Brain, label: "전공 적성 분석", path: "/aptitude", requiresAuth: true },
+  { icon: Search, label: "학과/직업 탐색", path: "/explore", requiresAuth: false },
+  { icon: Map, label: "입시 로드맵", path: "/roadmap", requiresAuth: true },
+  { icon: FileText, label: "생기부/자소서", path: "/documents", requiresAuth: true },
+  { icon: MessageSquare, label: "면접 연습", path: "/interview", requiresAuth: true },
+  { icon: Users, label: "커뮤니티", path: "/community", requiresAuth: false },
+  { icon: UserCircle, label: "마이페이지", path: "/mypage", requiresAuth: true },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -65,7 +66,7 @@ export default function DashboardLayout({
     const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
     return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
   });
-  const { loading, user } = useAuth();
+  const { loading } = useAuth();
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
@@ -75,38 +76,7 @@ export default function DashboardLayout({
     return <DashboardLayoutSkeleton />;
   }
 
-  if (!user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-background">
-        <div className="flex flex-col items-center gap-8 p-10 max-w-md w-full">
-          {/* Decorative geometric shapes */}
-          <div className="relative">
-            <div className="absolute -top-6 -left-8 w-16 h-16 rounded-full bg-pastel-blue-light opacity-60" />
-            <div className="absolute -top-2 -right-6 w-10 h-10 rounded-lg bg-pastel-pink-light opacity-50 rotate-12" />
-            <GraduationCap className="h-14 w-14 text-primary relative z-10" />
-          </div>
-          <div className="flex flex-col items-center gap-3">
-            <h1 className="text-2xl font-bold tracking-tight text-center text-foreground">
-              EduConnect
-            </h1>
-            <p className="text-sm text-muted-foreground text-center max-w-sm leading-relaxed">
-              고등학생을 위한 AI 기반 진로·입시 가이드 플랫폼에 오신 것을 환영합니다.
-            </p>
-          </div>
-          <Button
-            onClick={() => {
-              window.location.href = getLoginUrl();
-            }}
-            size="lg"
-            className="w-full shadow-md hover:shadow-lg transition-all rounded-xl"
-          >
-            로그인하기
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
+  // No longer blocking non-authenticated users - show full layout for everyone
   return (
     <SidebarProvider
       style={
@@ -173,6 +143,15 @@ function DashboardLayoutContent({
     };
   }, [isResizing, setSidebarWidth]);
 
+  const handleMenuClick = (item: typeof menuItems[0]) => {
+    if (item.requiresAuth && !user) {
+      // Redirect to login for auth-required pages
+      window.location.href = getLoginUrl();
+      return;
+    }
+    setLocation(item.path);
+  };
+
   return (
     <>
       <div className="relative" ref={sidebarRef}>
@@ -191,7 +170,7 @@ function DashboardLayoutContent({
                 <PanelLeft className="h-4 w-4 text-muted-foreground" />
               </button>
               {!isCollapsed ? (
-                <div className="flex items-center gap-2 min-w-0">
+                <div className="flex items-center gap-2 min-w-0 cursor-pointer" onClick={() => setLocation("/")}>
                   <GraduationCap className="h-5 w-5 text-primary shrink-0" />
                   <span className="font-bold tracking-tight truncate text-foreground">
                     EduConnect
@@ -209,7 +188,7 @@ function DashboardLayoutContent({
                   <SidebarMenuItem key={item.path}>
                     <SidebarMenuButton
                       isActive={isActive}
-                      onClick={() => setLocation(item.path)}
+                      onClick={() => handleMenuClick(item)}
                       tooltip={item.label}
                       className="h-10 transition-all font-normal"
                     >
@@ -217,6 +196,9 @@ function DashboardLayoutContent({
                         className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
                       />
                       <span>{item.label}</span>
+                      {item.requiresAuth && !user && !isCollapsed && (
+                        <LogIn className="h-3 w-3 text-muted-foreground ml-auto" />
+                      )}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 );
@@ -225,42 +207,55 @@ function DashboardLayoutContent({
           </SidebarContent>
 
           <SidebarFooter className="p-3">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <Avatar className="h-9 w-9 border shrink-0 bg-pastel-blue-light">
-                    <AvatarFallback className="text-xs font-medium bg-pastel-blue-light text-primary">
-                      {user?.name?.charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-                    <p className="text-sm font-medium truncate leading-none">
-                      {user?.name || "-"}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate mt-1.5">
-                      {user?.email || "-"}
-                    </p>
-                  </div>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem
-                  onClick={() => setLocation("/mypage")}
-                  className="cursor-pointer"
-                >
-                  <UserCircle className="mr-2 h-4 w-4" />
-                  <span>마이페이지</span>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={logout}
-                  className="cursor-pointer text-destructive focus:text-destructive"
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>로그아웃</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {user ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <Avatar className="h-9 w-9 border shrink-0 bg-pastel-blue-light">
+                      <AvatarFallback className="text-xs font-medium bg-pastel-blue-light text-primary">
+                        {user?.name?.charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
+                      <p className="text-sm font-medium truncate leading-none">
+                        {user?.name || "-"}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate mt-1.5">
+                        {user?.email || "-"}
+                      </p>
+                    </div>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem
+                    onClick={() => setLocation("/mypage")}
+                    className="cursor-pointer"
+                  >
+                    <UserCircle className="mr-2 h-4 w-4" />
+                    <span>마이페이지</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={logout}
+                    className="cursor-pointer text-destructive focus:text-destructive"
+                  >
+                    <LogOut className="mr-2 h-4 w-4" />
+                    <span>로그아웃</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Button
+                variant="outline"
+                className="w-full rounded-xl justify-start gap-2 h-10"
+                onClick={() => {
+                  window.location.href = getLoginUrl();
+                }}
+              >
+                <LogIn className="h-4 w-4" />
+                {!isCollapsed && <span>로그인</span>}
+              </Button>
+            )}
           </SidebarFooter>
         </Sidebar>
         <div

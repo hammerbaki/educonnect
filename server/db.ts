@@ -115,9 +115,9 @@ export async function upsertStudentProfile(data: InsertStudentProfile) {
 // ---- Aptitude Analysis ----
 export async function getLatestAptitudeAnalysis(userId: number) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) return null;
   const result = await db.select().from(aptitudeAnalyses).where(eq(aptitudeAnalyses.userId, userId)).orderBy(desc(aptitudeAnalyses.createdAt)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
+  return result.length > 0 ? result[0] : null;
 }
 
 export async function getAptitudeAnalyses(userId: number) {

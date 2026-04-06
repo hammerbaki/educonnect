@@ -59,7 +59,8 @@ export const appRouter = router({
   profile: router({
     get: protectedProcedure.query(async ({ ctx }) => {
       try {
-        return await db.getStudentProfile(ctx.user.id);
+        const profile = await db.getStudentProfile(ctx.user.id);
+        return profile ?? null;
       } catch (error) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "프로필 조회에 실패했습니다." });
       }

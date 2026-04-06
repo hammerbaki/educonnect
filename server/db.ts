@@ -94,9 +94,9 @@ export async function getUserByOpenId(openId: string) {
 // ---- Student Profile ----
 export async function getStudentProfile(userId: number) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) return null;
   const result = await db.select().from(studentProfiles).where(eq(studentProfiles.userId, userId)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
+  return result.length > 0 ? result[0] : null;
 }
 
 export async function upsertStudentProfile(data: InsertStudentProfile) {
@@ -229,9 +229,9 @@ export async function getDocuments(userId: number) {
 
 export async function getDocument(id: number, userId: number) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) return null;
   const result = await db.select().from(documents).where(and(eq(documents.id, id), eq(documents.userId, userId))).limit(1);
-  return result.length > 0 ? result[0] : undefined;
+  return result.length > 0 ? result[0] : null;
 }
 
 export async function createDocument(data: InsertDocument) {
@@ -262,9 +262,9 @@ export async function getInterviewSessions(userId: number) {
 
 export async function getInterviewSession(id: number, userId: number) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) return null;
   const result = await db.select().from(interviewSessions).where(and(eq(interviewSessions.id, id), eq(interviewSessions.userId, userId))).limit(1);
-  return result.length > 0 ? result[0] : undefined;
+  return result.length > 0 ? result[0] : null;
 }
 
 export async function createInterviewSession(data: InsertInterviewSession) {
@@ -324,11 +324,11 @@ export async function getCommunityPosts(options: {
 
 export async function getCommunityPost(id: number) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) return null;
   // Increment view count
   await db.update(communityPosts).set({ viewCount: sql`${communityPosts.viewCount} + 1` }).where(eq(communityPosts.id, id));
   const result = await db.select().from(communityPosts).where(eq(communityPosts.id, id)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
+  return result.length > 0 ? result[0] : null;
 }
 
 export async function createCommunityPost(data: InsertCommunityPost) {

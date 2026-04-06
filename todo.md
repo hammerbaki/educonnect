@@ -42,3 +42,5 @@
 - [x] D-Day 알림: Vitest 테스트 작성 (74개 테스트 전체 통과)
 - [x] D-Day 알림: 프리셋 일정 자동 등록 UI (Roadmap에서 addPresets 호출 버튼)
 - [x] D-Day 알림: 알림 설정 UI (event별 alertEnabled 토글, alertDaysBefore 입력)
+- [x] 마이페이지 2 errors 수정 (profile.get undefined → null 반환, 다른 DB 함수들도 일괄 수정)
+- [ ] Git 자동 푸시 확인 및 설정

@@ -801,3 +801,151 @@ describe("explore.semanticSearch", () => {
     expect(result).toHaveProperty("jobs");
   });
 });
+
+describe("explore.personalizedRecommend", () => {
+  const validInput = {
+    interests: ["IT/프로그래밍", "수학/통계"],
+    personality: {
+      introvertExtrovert: 2,
+      thinkingFeeling: 2,
+      planningFlexible: 3,
+      individualTeam: 3,
+      creativeAnalytical: 4,
+    },
+    grades: { korean: 3, math: 1, english: 2, science: 2 },
+    preferredType: "이과" as const,
+    priorityFactor: "적성" as const,
+  };
+
+  const mockResponse = {
+    analysis: {
+      strengths: ["수리 논리력", "분석적 사고"],
+      personalityType: "분석적 창의형",
+      recommendedFields: ["공학계열", "자연계열"],
+      overallComment: "수학과 과학에 강점이 있고 분석적 사고를 갖춘 학생입니다.",
+    },
+    majors: [
+      {
+        name: "컴퓨터공학",
+        category: "공학계열",
+        matchScore: 95,
+        reason: "수학 1등급과 IT 관심사가 잘 맞습니다",
+        admissionTip: "수학 성적을 활용한 정시 전형이 유리합니다",
+        relatedSubjects: ["수학", "정보", "물리"],
+        careerPaths: ["소프트웨어 개발자", "AI 엔지니어"],
+        demand: "매우 높음",
+      },
+    ],
+    jobs: [
+      {
+        name: "데이터 사이언티스트",
+        field: "IT/기술",
+        matchScore: 92,
+        reason: "수리 능력과 분석적 사고가 적합합니다",
+        requiredSkills: ["Python", "통계", "머신러닝"],
+        salary: "5000만원~",
+        growth: "매우 높음",
+        workEnvironment: "주로 사무실에서 데이터 분석 업무를 수행합니다",
+      },
+    ],
+    studyPlan: {
+      focusSubjects: ["수학", "정보", "영어"],
+      activities: ["코딩 동아리 활동", "수학 경시대회 참가"],
+      timeline: "고3 1학기: 내신 관리, 2학기: 수능 집중",
+    },
+  };
+
+  it("returns personalized recommendations for valid input", async () => {
+    const { invokeLLM } = await import("./_core/llm");
+    const mockedLLM = vi.mocked(invokeLLM);
+
+    mockedLLM.mockResolvedValueOnce({
+      choices: [{ message: { content: JSON.stringify(mockResponse) } }],
+    } as any);
+
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.explore.personalizedRecommend(validInput);
+
+    expect(result).toHaveProperty("analysis");
+    expect(result).toHaveProperty("majors");
+    expect(result).toHaveProperty("jobs");
+    expect(result).toHaveProperty("studyPlan");
+    expect(result.analysis).toHaveProperty("personalityType");
+    expect(result.analysis).toHaveProperty("strengths");
+    expect(Array.isArray(result.majors)).toBe(true);
+    expect(result.majors.length).toBeGreaterThan(0);
+    expect(result.majors[0]).toHaveProperty("admissionTip");
+    expect(result.jobs[0]).toHaveProperty("workEnvironment");
+    expect(result.studyPlan).toHaveProperty("focusSubjects");
+  });
+
+  it("handles LLM failure gracefully", async () => {
+    const { invokeLLM } = await import("./_core/llm");
+    const mockedLLM = vi.mocked(invokeLLM);
+
+    mockedLLM.mockRejectedValueOnce(new Error("LLM service unavailable"));
+
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(caller.explore.personalizedRecommend(validInput)).rejects.toThrow();
+  });
+
+  it("rejects empty interests array", async () => {
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.explore.personalizedRecommend({ ...validInput, interests: [] })
+    ).rejects.toThrow();
+  });
+
+  it("handles malformed LLM response with fallback", async () => {
+    const { invokeLLM } = await import("./_core/llm");
+    const mockedLLM = vi.mocked(invokeLLM);
+
+    mockedLLM.mockResolvedValueOnce({
+      choices: [{ message: { content: "not valid json at all" } }],
+    } as any);
+
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.explore.personalizedRecommend(validInput);
+
+    expect(result).toHaveProperty("analysis");
+    expect(result).toHaveProperty("majors");
+    expect(result).toHaveProperty("jobs");
+    expect(result).toHaveProperty("studyPlan");
+    expect(result.analysis.personalityType).toBe("분석 불가");
+  });
+
+  it("works with minimal grades input", async () => {
+    const { invokeLLM } = await import("./_core/llm");
+    const mockedLLM = vi.mocked(invokeLLM);
+
+    mockedLLM.mockResolvedValueOnce({
+      choices: [{ message: { content: JSON.stringify(mockResponse) } }],
+    } as any);
+
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.explore.personalizedRecommend({
+      ...validInput,
+      grades: {},
+    });
+
+    expect(result).toHaveProperty("analysis");
+    expect(result).toHaveProperty("majors");
+  });
+
+  it("validates personality values within range", async () => {
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.explore.personalizedRecommend({
+        ...validInput,
+        personality: { ...validInput.personality, introvertExtrovert: 10 },
+      })
+    ).rejects.toThrow();
+  });
+});
+

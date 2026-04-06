@@ -449,6 +449,161 @@ ${input.major ? `지원 학과: ${input.major}` : ""}
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 검색에 실패했습니다. 잠시 후 다시 시도해 주세요." });
         }
       }),
+    personalizedRecommend: publicProcedure
+      .input(z.object({
+        // 성향 정보
+        interests: z.array(z.string()).min(1).describe("관심 분야 목록"),
+        personality: z.object({
+          introvertExtrovert: z.number().min(1).max(5).describe("1=내향적, 5=외향적"),
+          thinkingFeeling: z.number().min(1).max(5).describe("1=논리적, 5=감성적"),
+          planningFlexible: z.number().min(1).max(5).describe("1=계획적, 5=유연한"),
+          individualTeam: z.number().min(1).max(5).describe("1=개인, 5=팀워크"),
+          creativeAnalytical: z.number().min(1).max(5).describe("1=분석적, 5=창의적"),
+        }),
+        // 과목별 성적 (등급 1~9)
+        grades: z.object({
+          korean: z.number().min(1).max(9).optional(),
+          math: z.number().min(1).max(9).optional(),
+          english: z.number().min(1).max(9).optional(),
+          science: z.number().min(1).max(9).optional(),
+          social: z.number().min(1).max(9).optional(),
+          art: z.number().min(1).max(9).optional(),
+        }),
+        // 추가 정보
+        preferredType: z.enum(["문과", "이과", "예체능", "상관없음"]).optional(),
+        priorityFactor: z.enum(["적성", "취업", "연봉", "안정성", "성장성"]).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        try {
+          const gradeText = Object.entries(input.grades)
+            .filter(([, v]) => v !== undefined)
+            .map(([k, v]) => {
+              const nameMap: Record<string, string> = { korean: "국어", math: "수학", english: "영어", science: "과학(탐구)", social: "사회(탐구)", art: "예체능" };
+              return `${nameMap[k] || k}: ${v}등급`;
+            }).join(", ");
+
+          const personalityText = [
+            `내향-외향: ${input.personality.introvertExtrovert}/5`,
+            `논리-감성: ${input.personality.thinkingFeeling}/5`,
+            `계획-유연: ${input.personality.planningFlexible}/5`,
+            `개인-팀워크: ${input.personality.individualTeam}/5`,
+            `분석-창의: ${input.personality.creativeAnalytical}/5`,
+          ].join(", ");
+
+          const response = await invokeLLM({
+            messages: [
+              {
+                role: "system",
+                content: `당신은 한국 고등학생 진로 상담 전문가입니다.
+학생의 성향, 과목별 성적, 관심 분야를 종합적으로 분석하여 최적의 학과와 직업을 추천해주세요.
+
+분석 시 고려할 사항:
+1. 성적이 우수한 과목과 관련된 학과를 우선 고려
+2. 성향(내향/외향, 논리/감성 등)에 맞는 직업 환경 고려
+3. 관심 분야와 실제 학과/직업의 연관성 분석
+4. 현실적인 입시 가능성 (성적 기반) 반영
+5. 학생의 우선순위 (적성/취업/연봉/안정성/성장성) 반영
+
+반드시 아래 JSON 형식으로만 응답하세요.`,
+              },
+              {
+                role: "user",
+                content: `학생 프로필:
+- 관심 분야: ${input.interests.join(", ")}
+- 성향: ${personalityText}
+- 과목별 성적: ${gradeText || "미입력"}
+- 계열 선호: ${input.preferredType || "상관없음"}
+- 우선순위: ${input.priorityFactor || "적성"}
+
+이 학생에게 최적의 학과 5개와 직업 5개를 추천해주세요.`,
+              },
+            ],
+            response_format: {
+              type: "json_schema",
+              json_schema: {
+                name: "personalized_recommend",
+                strict: true,
+                schema: {
+                  type: "object",
+                  properties: {
+                    analysis: {
+                      type: "object",
+                      properties: {
+                        strengths: { type: "array", items: { type: "string" } },
+                        personalityType: { type: "string" },
+                        recommendedFields: { type: "array", items: { type: "string" } },
+                        overallComment: { type: "string" },
+                      },
+                      required: ["strengths", "personalityType", "recommendedFields", "overallComment"],
+                      additionalProperties: false,
+                    },
+                    majors: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          name: { type: "string" },
+                          category: { type: "string" },
+                          matchScore: { type: "number" },
+                          reason: { type: "string" },
+                          admissionTip: { type: "string" },
+                          relatedSubjects: { type: "array", items: { type: "string" } },
+                          careerPaths: { type: "array", items: { type: "string" } },
+                          demand: { type: "string" },
+                        },
+                        required: ["name", "category", "matchScore", "reason", "admissionTip", "relatedSubjects", "careerPaths", "demand"],
+                        additionalProperties: false,
+                      },
+                    },
+                    jobs: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          name: { type: "string" },
+                          field: { type: "string" },
+                          matchScore: { type: "number" },
+                          reason: { type: "string" },
+                          requiredSkills: { type: "array", items: { type: "string" } },
+                          salary: { type: "string" },
+                          growth: { type: "string" },
+                          workEnvironment: { type: "string" },
+                        },
+                        required: ["name", "field", "matchScore", "reason", "requiredSkills", "salary", "growth", "workEnvironment"],
+                        additionalProperties: false,
+                      },
+                    },
+                    studyPlan: {
+                      type: "object",
+                      properties: {
+                        focusSubjects: { type: "array", items: { type: "string" } },
+                        activities: { type: "array", items: { type: "string" } },
+                        timeline: { type: "string" },
+                      },
+                      required: ["focusSubjects", "activities", "timeline"],
+                      additionalProperties: false,
+                    },
+                  },
+                  required: ["analysis", "majors", "jobs", "studyPlan"],
+                  additionalProperties: false,
+                },
+              },
+            },
+          });
+
+          const content = extractLLMContent(response);
+          const fallback = {
+            analysis: { strengths: [], personalityType: "분석 불가", recommendedFields: [], overallComment: "분석 결과를 생성하지 못했습니다." },
+            majors: [],
+            jobs: [],
+            studyPlan: { focusSubjects: [], activities: [], timeline: "" },
+          };
+          return safeJsonParse(content, fallback);
+        } catch (error) {
+          console.error("[Explore] Personalized recommend failed:", error);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "맞춤형 추천 분석에 실패했습니다. 잠시 후 다시 시도해 주세요." });
+        }
+      }),
   }),
 
   // Community

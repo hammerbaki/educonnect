@@ -1,10 +1,12 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, GraduationCap, Briefcase, BookOpen, TrendingUp, Users, Building } from "lucide-react";
+import { Search, GraduationCap, Briefcase, BookOpen, TrendingUp, Sparkles, Loader2, ArrowRight } from "lucide-react";
 import { useState, useMemo } from "react";
+import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 
 const majorCategories = [
   { id: "all", label: "전체" },
@@ -42,28 +44,108 @@ const jobsData = [
   { name: "임상심리사", field: "심리/상담", salary: "3,500만원~", growth: "높음", desc: "심리 검사와 상담을 통해 정신 건강을 돕는 전문가입니다.", relatedMajors: ["심리학", "상담학", "사회복지학"] },
 ];
 
+const suggestedQueries = [
+  "사람들을 돕는 일을 하고 싶어요",
+  "수학을 좋아하는데 어떤 전공이 맞을까요?",
+  "창의적인 일을 하고 싶어요",
+  "돈을 많이 버는 직업이 뭐가 있나요?",
+  "코딩에 관심이 있는데 어떤 학과가 좋을까?",
+  "환경 문제를 해결하고 싶어요",
+];
+
+type SemanticResult = {
+  majors: Array<{
+    name: string;
+    category: string;
+    matchScore: number;
+    reason: string;
+    jobs: string[];
+    subjects: string[];
+    demand: string;
+    desc: string;
+  }>;
+  jobs: Array<{
+    name: string;
+    field: string;
+    matchScore: number;
+    reason: string;
+    relatedMajors: string[];
+    salary: string;
+    growth: string;
+    desc: string;
+  }>;
+  summary: string;
+};
+
 export default function Explore() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const [searchMode, setSearchMode] = useState<"keyword" | "semantic">("keyword");
+  const [semanticResult, setSemanticResult] = useState<SemanticResult | null>(null);
+
+  const semanticSearch = trpc.explore.semanticSearch.useMutation({
+    onSuccess: (data) => {
+      setSemanticResult(data as SemanticResult);
+    },
+    onError: (err) => {
+      toast.error(err.message || "AI 검색에 실패했습니다.");
+    },
+  });
+
+  const handleSemanticSearch = () => {
+    if (!searchTerm.trim()) {
+      toast.error("검색어를 입력해주세요.");
+      return;
+    }
+    setSearchMode("semantic");
+    semanticSearch.mutate({ query: searchTerm });
+  };
+
+  const handleKeywordSearch = (value: string) => {
+    setSearchTerm(value);
+    setSearchMode("keyword");
+    setSemanticResult(null);
+  };
+
+  const handleSuggestedQuery = (query: string) => {
+    setSearchTerm(query);
+    setSearchMode("semantic");
+    semanticSearch.mutate({ query });
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && searchTerm.trim()) {
+      handleSemanticSearch();
+    }
+  };
 
   const filteredMajors = useMemo(() => {
+    if (searchMode === "semantic") return [];
     return majorsData.filter((m) => {
       const matchCategory = selectedCategory === "all" || m.category === selectedCategory;
-      const matchSearch = m.name.includes(searchTerm) || m.desc.includes(searchTerm) || m.jobs.some((j) => j.includes(searchTerm));
+      const matchSearch = !searchTerm || m.name.includes(searchTerm) || m.desc.includes(searchTerm) || m.jobs.some((j) => j.includes(searchTerm));
       return matchCategory && matchSearch;
     });
-  }, [searchTerm, selectedCategory]);
+  }, [searchTerm, selectedCategory, searchMode]);
 
   const filteredJobs = useMemo(() => {
+    if (searchMode === "semantic") return [];
     return jobsData.filter((j) => {
-      return j.name.includes(searchTerm) || j.field.includes(searchTerm) || j.desc.includes(searchTerm);
+      return !searchTerm || j.name.includes(searchTerm) || j.field.includes(searchTerm) || j.desc.includes(searchTerm);
     });
-  }, [searchTerm]);
+  }, [searchTerm, searchMode]);
 
   const getDemandColor = (demand: string) => {
     if (demand === "매우 높음") return "bg-emerald-100 text-emerald-700";
     if (demand === "높음") return "bg-blue-100 text-blue-700";
+    if (demand === "안정") return "bg-violet-100 text-violet-700";
     return "bg-gray-100 text-gray-600";
+  };
+
+  const getScoreColor = (score: number) => {
+    if (score >= 80) return "text-emerald-600";
+    if (score >= 60) return "text-blue-600";
+    return "text-gray-500";
   };
 
   return (
@@ -71,126 +153,307 @@ export default function Explore() {
       <div>
         <h1 className="text-2xl font-bold">학과/직업 탐색</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          관심 있는 학과와 직업 정보를 탐색해 보세요
+          키워드 검색은 물론, AI 의미 검색으로 관심사에 맞는 학과와 직업을 찾아보세요
         </p>
       </div>
 
       {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="학과명, 직업명, 키워드로 검색..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="pl-10 rounded-xl h-11"
-        />
+      <div className="space-y-3">
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="예: '사람들을 돕는 일을 하고 싶어요' 또는 키워드 입력..."
+              value={searchTerm}
+              onChange={(e) => handleKeywordSearch(e.target.value)}
+              onKeyDown={handleKeyDown}
+              className="pl-10 rounded-xl h-11"
+            />
+          </div>
+          <Button
+            onClick={handleSemanticSearch}
+            disabled={!searchTerm.trim() || semanticSearch.isPending}
+            className="rounded-xl h-11 gap-2 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white px-5"
+          >
+            {semanticSearch.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            AI 검색
+          </Button>
+        </div>
+
+        {/* Suggested queries */}
+        {!searchTerm && (
+          <div className="flex flex-wrap gap-2">
+            <span className="text-xs text-muted-foreground py-1">추천 질문:</span>
+            {suggestedQueries.map((q) => (
+              <button
+                key={q}
+                onClick={() => handleSuggestedQuery(q)}
+                className="text-xs px-3 py-1.5 rounded-full bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors cursor-pointer"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      <Tabs defaultValue="majors">
-        <TabsList className="bg-muted/50">
-          <TabsTrigger value="majors" className="gap-1.5">
-            <GraduationCap className="h-4 w-4" />
-            학과 정보
-          </TabsTrigger>
-          <TabsTrigger value="jobs" className="gap-1.5">
-            <Briefcase className="h-4 w-4" />
-            직업 정보
-          </TabsTrigger>
-        </TabsList>
+      {/* Semantic Search Results */}
+      {searchMode === "semantic" && (
+        <div className="space-y-6">
+          {semanticSearch.isPending && (
+            <div className="text-center py-16">
+              <div className="inline-flex items-center gap-3 px-6 py-4 rounded-2xl bg-blue-50">
+                <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
+                <span className="text-blue-700 font-medium">AI가 관련 학과와 직업을 분석하고 있어요...</span>
+              </div>
+            </div>
+          )}
 
-        <TabsContent value="majors" className="space-y-4 mt-4">
-          {/* Category Filter */}
-          <div className="flex flex-wrap gap-2">
-            {majorCategories.map((cat) => (
-              <Button
-                key={cat.id}
-                variant={selectedCategory === cat.id ? "default" : "outline"}
-                size="sm"
-                onClick={() => setSelectedCategory(cat.id)}
-                className="rounded-full text-xs"
-              >
-                {cat.label}
-              </Button>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredMajors.map((major) => (
-              <Card key={major.name} className="border-0 shadow-sm hover:shadow-md transition-shadow">
-                <CardContent className="p-5 space-y-3">
-                  <div className="flex items-start justify-between">
+          {semanticResult && !semanticSearch.isPending && (
+            <>
+              {/* Summary */}
+              <Card className="border-0 shadow-sm bg-gradient-to-r from-blue-50 to-indigo-50">
+                <CardContent className="p-5">
+                  <div className="flex items-start gap-3">
+                    <Sparkles className="h-5 w-5 text-blue-500 mt-0.5 shrink-0" />
                     <div>
-                      <h3 className="font-semibold text-base">{major.name}</h3>
-                      <Badge variant="outline" className="text-xs mt-1">
-                        {major.category}계열
-                      </Badge>
-                    </div>
-                    <Badge className={`text-xs ${getDemandColor(major.demand)}`}>
-                      수요 {major.demand}
-                    </Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{major.desc}</p>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <BookOpen className="h-3.5 w-3.5" />
-                      <span>관련 과목: {major.subjects.join(", ")}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Briefcase className="h-3.5 w-3.5" />
-                      <span>관련 직업: {major.jobs.join(", ")}</span>
+                      <h3 className="font-semibold text-sm text-blue-900 mb-1">AI 분석 결과</h3>
+                      <p className="text-sm text-blue-800 leading-relaxed">{semanticResult.summary}</p>
                     </div>
                   </div>
                 </CardContent>
               </Card>
-            ))}
-          </div>
-          {filteredMajors.length === 0 && (
-            <div className="text-center py-12">
-              <Search className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
-              <p className="text-muted-foreground">검색 결과가 없습니다</p>
-            </div>
-          )}
-        </TabsContent>
 
-        <TabsContent value="jobs" className="space-y-4 mt-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredJobs.map((job) => (
-              <Card key={job.name} className="border-0 shadow-sm hover:shadow-md transition-shadow">
-                <CardContent className="p-5 space-y-3">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h3 className="font-semibold text-base">{job.name}</h3>
-                      <Badge variant="outline" className="text-xs mt-1">
-                        {job.field}
+              {/* AI Recommended Majors */}
+              {semanticResult.majors.length > 0 && (
+                <div className="space-y-3">
+                  <h2 className="text-lg font-bold flex items-center gap-2">
+                    <GraduationCap className="h-5 w-5 text-blue-500" />
+                    추천 학과
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {semanticResult.majors.map((major, i) => (
+                      <Card key={i} className="border-0 shadow-sm hover:shadow-md transition-shadow">
+                        <CardContent className="p-5 space-y-3">
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h3 className="font-semibold text-base">{major.name}</h3>
+                                <span className={`text-sm font-bold ${getScoreColor(major.matchScore)}`}>
+                                  {major.matchScore}%
+                                </span>
+                              </div>
+                              <Badge variant="outline" className="text-xs mt-1">
+                                {major.category}계열
+                              </Badge>
+                            </div>
+                            <Badge className={`text-xs ${getDemandColor(major.demand)}`}>
+                              수요 {major.demand}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground leading-relaxed">{major.desc}</p>
+                          <div className="p-2.5 rounded-lg bg-blue-50/50 text-xs text-blue-700">
+                            <ArrowRight className="h-3 w-3 inline mr-1" />
+                            {major.reason}
+                          </div>
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <BookOpen className="h-3.5 w-3.5" />
+                              <span>관련 과목: {major.subjects.join(", ")}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <Briefcase className="h-3.5 w-3.5" />
+                              <span>관련 직업: {major.jobs.join(", ")}</span>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* AI Recommended Jobs */}
+              {semanticResult.jobs.length > 0 && (
+                <div className="space-y-3">
+                  <h2 className="text-lg font-bold flex items-center gap-2">
+                    <Briefcase className="h-5 w-5 text-indigo-500" />
+                    추천 직업
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {semanticResult.jobs.map((job, i) => (
+                      <Card key={i} className="border-0 shadow-sm hover:shadow-md transition-shadow">
+                        <CardContent className="p-5 space-y-3">
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h3 className="font-semibold text-base">{job.name}</h3>
+                                <span className={`text-sm font-bold ${getScoreColor(job.matchScore)}`}>
+                                  {job.matchScore}%
+                                </span>
+                              </div>
+                              <Badge variant="outline" className="text-xs mt-1">
+                                {job.field}
+                              </Badge>
+                            </div>
+                            <Badge className={getDemandColor(job.growth)}>
+                              성장성 {job.growth}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground leading-relaxed">{job.desc}</p>
+                          <div className="p-2.5 rounded-lg bg-indigo-50/50 text-xs text-indigo-700">
+                            <ArrowRight className="h-3 w-3 inline mr-1" />
+                            {job.reason}
+                          </div>
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <TrendingUp className="h-3.5 w-3.5" />
+                              <span>초봉: {job.salary}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <GraduationCap className="h-3.5 w-3.5" />
+                              <span>관련 학과: {job.relatedMajors.join(", ")}</span>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="text-center">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSearchMode("keyword");
+                    setSemanticResult(null);
+                    setSearchTerm("");
+                  }}
+                  className="rounded-xl"
+                >
+                  전체 목록으로 돌아가기
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Keyword Search Results */}
+      {searchMode === "keyword" && (
+        <Tabs defaultValue="majors">
+          <TabsList className="bg-muted/50">
+            <TabsTrigger value="majors" className="gap-1.5">
+              <GraduationCap className="h-4 w-4" />
+              학과 정보
+            </TabsTrigger>
+            <TabsTrigger value="jobs" className="gap-1.5">
+              <Briefcase className="h-4 w-4" />
+              직업 정보
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="majors" className="space-y-4 mt-4">
+            {/* Category Filter */}
+            <div className="flex flex-wrap gap-2">
+              {majorCategories.map((cat) => (
+                <Button
+                  key={cat.id}
+                  variant={selectedCategory === cat.id ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedCategory(cat.id)}
+                  className="rounded-full text-xs"
+                >
+                  {cat.label}
+                </Button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {filteredMajors.map((major) => (
+                <Card key={major.name} className="border-0 shadow-sm hover:shadow-md transition-shadow">
+                  <CardContent className="p-5 space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="font-semibold text-base">{major.name}</h3>
+                        <Badge variant="outline" className="text-xs mt-1">
+                          {major.category}계열
+                        </Badge>
+                      </div>
+                      <Badge className={`text-xs ${getDemandColor(major.demand)}`}>
+                        수요 {major.demand}
                       </Badge>
                     </div>
-                    <Badge className={getDemandColor(job.growth)}>
-                      성장성 {job.growth}
-                    </Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{job.desc}</p>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <TrendingUp className="h-3.5 w-3.5" />
-                      <span>초봉: {job.salary}</span>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{major.desc}</p>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <BookOpen className="h-3.5 w-3.5" />
+                        <span>관련 과목: {major.subjects.join(", ")}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Briefcase className="h-3.5 w-3.5" />
+                        <span>관련 직업: {major.jobs.join(", ")}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <GraduationCap className="h-3.5 w-3.5" />
-                      <span>관련 학과: {job.relatedMajors.join(", ")}</span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-          {filteredJobs.length === 0 && (
-            <div className="text-center py-12">
-              <Search className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
-              <p className="text-muted-foreground">검색 결과가 없습니다</p>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-          )}
-        </TabsContent>
-      </Tabs>
+            {filteredMajors.length === 0 && (
+              <div className="text-center py-12">
+                <Search className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
+                <p className="text-muted-foreground">검색 결과가 없습니다</p>
+                <p className="text-xs text-muted-foreground mt-1">AI 검색을 사용해 보세요</p>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="jobs" className="space-y-4 mt-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {filteredJobs.map((job) => (
+                <Card key={job.name} className="border-0 shadow-sm hover:shadow-md transition-shadow">
+                  <CardContent className="p-5 space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="font-semibold text-base">{job.name}</h3>
+                        <Badge variant="outline" className="text-xs mt-1">
+                          {job.field}
+                        </Badge>
+                      </div>
+                      <Badge className={getDemandColor(job.growth)}>
+                        성장성 {job.growth}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{job.desc}</p>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <TrendingUp className="h-3.5 w-3.5" />
+                        <span>초봉: {job.salary}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <GraduationCap className="h-3.5 w-3.5" />
+                        <span>관련 학과: {job.relatedMajors.join(", ")}</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+            {filteredJobs.length === 0 && (
+              <div className="text-center py-12">
+                <Search className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
+                <p className="text-muted-foreground">검색 결과가 없습니다</p>
+                <p className="text-xs text-muted-foreground mt-1">AI 검색을 사용해 보세요</p>
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
+      )}
     </div>
   );
 }

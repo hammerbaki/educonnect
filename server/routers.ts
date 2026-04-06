@@ -90,7 +90,8 @@ export const appRouter = router({
   // Aptitude Analysis
   aptitude: router({
     latest: protectedProcedure.query(async ({ ctx }) => {
-      return db.getLatestAptitudeAnalysis(ctx.user.id);
+      const result = await db.getLatestAptitudeAnalysis(ctx.user.id);
+      return result ?? null;
     }),
     list: protectedProcedure.query(async ({ ctx }) => {
       return db.getAptitudeAnalyses(ctx.user.id);
@@ -355,6 +356,97 @@ ${input.major ? `지원 학과: ${input.major}` : ""}
         } catch (error) {
           console.error("[Document] AI guide failed:", error);
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 첨삭 가이드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요." });
+        }
+      }),
+  }),
+
+  // Explore - Semantic Search
+  explore: router({
+    semanticSearch: publicProcedure
+      .input(z.object({ query: z.string().min(1) }))
+      .mutation(async ({ input }) => {
+        try {
+          const response = await invokeLLM({
+            messages: [
+              {
+                role: "system",
+                content: `당신은 한국 대학 학과 및 직업 정보 전문가입니다.
+사용자의 자연어 질문을 분석하여 관련 학과와 직업을 추천해주세요.
+
+반드시 아래 JSON 형식으로만 응답하세요:
+{
+  "majors": [
+    { "name": "학과명", "category": "계열(인문/사회/자연/공학/예체능/의약)", "matchScore": 85, "reason": "추천 이유", "jobs": ["관련직업1", "관련직업2"], "subjects": ["관련과목1", "관련과목2"], "demand": "매우 높음/높음/보통", "desc": "학과 설명" }
+  ],
+  "jobs": [
+    { "name": "직업명", "field": "분야", "matchScore": 80, "reason": "추천 이유", "relatedMajors": ["관련학과1"], "salary": "연봉 범위", "growth": "매우 높음/높음/보통/안정", "desc": "직업 설명" }
+  ],
+  "summary": "검색 결과 요약 (2-3문장)"
+}
+
+최대 5개 학과, 5개 직업까지 추천하세요. matchScore는 질문과의 관련도(0-100)입니다.`,
+              },
+              { role: "user", content: input.query },
+            ],
+            response_format: {
+              type: "json_schema",
+              json_schema: {
+                name: "explore_search",
+                strict: true,
+                schema: {
+                  type: "object",
+                  properties: {
+                    majors: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          name: { type: "string" },
+                          category: { type: "string" },
+                          matchScore: { type: "number" },
+                          reason: { type: "string" },
+                          jobs: { type: "array", items: { type: "string" } },
+                          subjects: { type: "array", items: { type: "string" } },
+                          demand: { type: "string" },
+                          desc: { type: "string" },
+                        },
+                        required: ["name", "category", "matchScore", "reason", "jobs", "subjects", "demand", "desc"],
+                        additionalProperties: false,
+                      },
+                    },
+                    jobs: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          name: { type: "string" },
+                          field: { type: "string" },
+                          matchScore: { type: "number" },
+                          reason: { type: "string" },
+                          relatedMajors: { type: "array", items: { type: "string" } },
+                          salary: { type: "string" },
+                          growth: { type: "string" },
+                          desc: { type: "string" },
+                        },
+                        required: ["name", "field", "matchScore", "reason", "relatedMajors", "salary", "growth", "desc"],
+                        additionalProperties: false,
+                      },
+                    },
+                    summary: { type: "string" },
+                  },
+                  required: ["majors", "jobs", "summary"],
+                  additionalProperties: false,
+                },
+              },
+            },
+          });
+
+          const content = extractLLMContent(response);
+          const result = safeJsonParse(content, { majors: [], jobs: [], summary: "검색 결과를 분석하지 못했습니다." });
+          return result;
+        } catch (error) {
+          console.error("[Explore] Semantic search failed:", error);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 검색에 실패했습니다. 잠시 후 다시 시도해 주세요." });
         }
       }),
   }),

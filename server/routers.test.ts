@@ -721,3 +721,83 @@ describe("community.userLikes", () => {
     expect(Array.isArray(result)).toBe(true);
   });
 });
+
+describe("explore.semanticSearch", () => {
+  it("returns semantic search results for a query", async () => {
+    const { invokeLLM } = await import("./_core/llm");
+    const mockedLLM = vi.mocked(invokeLLM);
+
+    mockedLLM.mockResolvedValueOnce({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            majors: [
+              { name: "심리학", category: "사회계열", matchScore: 92, reason: "사람의 마음을 이해하는 학문", jobs: ["상담사", "심리치료사"], subjects: ["생명과학", "사회"], demand: "높음", desc: "인간의 행동과 정신 과정을 연구" },
+              { name: "사회복지학", category: "사회계열", matchScore: 85, reason: "사회적 약자를 돕는 학문", jobs: ["사회복지사"], subjects: ["사회", "국어"], demand: "높음", desc: "사회 복지 정책과 실천을 학습" },
+            ],
+            jobs: [
+              { name: "상담사", field: "사회복지", matchScore: 95, reason: "사람들의 고민을 듣고 도움을 주는 직업", relatedMajors: ["심리학", "상담학"], salary: "3000-5000만원", growth: "높음", desc: "심리 상담 전문가" },
+              { name: "사회복지사", field: "사회복지", matchScore: 88, reason: "사회적 약자를 지원하는 직업", relatedMajors: ["사회복지학"], salary: "2800-4500만원", growth: "높음", desc: "사회복지 서비스 제공" },
+            ],
+            summary: "사람을 돕는 일에 관심이 있으시군요. 심리학과 사회복지학이 적합합니다.",
+          }),
+        },
+      }],
+    } as any);
+
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.explore.semanticSearch({
+      query: "사람들을 돕는 일을 하고 싶어요",
+    });
+
+    expect(result).toHaveProperty("majors");
+    expect(result).toHaveProperty("jobs");
+    expect(Array.isArray(result.majors)).toBe(true);
+    expect(Array.isArray(result.jobs)).toBe(true);
+    expect(result.majors.length).toBeGreaterThan(0);
+    expect(result.majors[0]).toHaveProperty("name");
+    expect(result.majors[0]).toHaveProperty("matchScore");
+    expect(result.majors[0]).toHaveProperty("reason");
+  });
+
+  it("handles LLM failure gracefully", async () => {
+    const { invokeLLM } = await import("./_core/llm");
+    const mockedLLM = vi.mocked(invokeLLM);
+
+    mockedLLM.mockRejectedValueOnce(new Error("LLM service unavailable"));
+
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.explore.semanticSearch({ query: "코딩 관련 직업" })
+    ).rejects.toThrow();
+  });
+
+  it("rejects empty query", async () => {
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.explore.semanticSearch({ query: "" })
+    ).rejects.toThrow();
+  });
+
+  it("handles malformed LLM response with fallback", async () => {
+    const { invokeLLM } = await import("./_core/llm");
+    const mockedLLM = vi.mocked(invokeLLM);
+
+    mockedLLM.mockResolvedValueOnce({
+      choices: [{ message: { content: "not valid json" } }],
+    } as any);
+
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.explore.semanticSearch({
+      query: "수학을 좋아하는데 어떤 전공이 맞을까요?",
+    });
+
+    // Should return fallback empty arrays
+    expect(result).toHaveProperty("majors");
+    expect(result).toHaveProperty("jobs");
+  });
+});

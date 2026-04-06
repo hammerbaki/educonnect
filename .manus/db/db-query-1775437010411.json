@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE `interview_sessions` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`userId` int NOT NULL,\n\t`university` varchar(200),\n\t`major` varchar(200),\n\t`interviewType` enum('심층면접','인성면접','제시문면접') DEFAULT '인성면접',\n\t`messages` json,\n\t`feedback` text,\n\t`score` int,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\tCONSTRAINT `interview_sessions_id` PRIMARY KEY(`id`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user ziqC8BLixzkif57.9d353ebaa113 --database g83Fqi2aox6KL2ahHS2B8M --execute CREATE TABLE `interview_sessions` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`userId` int NOT NULL,\n\t`university` varchar(200),\n\t`major` varchar(200),\n\t`interviewType` enum('심층면접','인성면접','제시문면접') DEFAULT '인성면접',\n\t`messages` json,\n\t`feedback` text,\n\t`score` int,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\tCONSTRAINT `interview_sessions_id` PRIMARY KEY(`id`)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1585
+}

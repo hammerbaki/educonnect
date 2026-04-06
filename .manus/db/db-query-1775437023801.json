@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE `student_profiles` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`userId` int NOT NULL,\n\t`grade` enum('1','2','3') NOT NULL DEFAULT '3',\n\t`school` varchar(200),\n\t`interestAreas` json,\n\t`favoriteSubjects` json,\n\t`weakSubjects` json,\n\t`gpa` varchar(20),\n\t`targetUniversities` json,\n\t`targetMajors` json,\n\t`admissionType` enum('수시','정시','미정') DEFAULT '미정',\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `student_profiles_id` PRIMARY KEY(`id`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user ziqC8BLixzkif57.9d353ebaa113 --database g83Fqi2aox6KL2ahHS2B8M --execute CREATE TABLE `student_profiles` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`userId` int NOT NULL,\n\t`grade` enum('1','2','3') NOT NULL DEFAULT '3',\n\t`school` varchar(200),\n\t`interestAreas` json,\n\t`favoriteSubjects` json,\n\t`weakSubjects` json,\n\t`gpa` varchar(20),\n\t`targetUniversities` json,\n\t`targetMajors` json,\n\t`admissionType` enum('수시','정시','미정') DEFAULT '미정',\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `student_profiles_id` PRIMARY KEY(`id`)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1657
+}

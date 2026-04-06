@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE `roadmap_goals` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`userId` int NOT NULL,\n\t`title` varchar(300) NOT NULL,\n\t`description` text,\n\t`category` enum('학업','비교과','입시','자기개발','기타') DEFAULT '기타',\n\t`status` enum('예정','진행중','완료') NOT NULL DEFAULT '예정',\n\t`priority` enum('높음','보통','낮음') DEFAULT '보통',\n\t`dueDate` timestamp,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `roadmap_goals_id` PRIMARY KEY(`id`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user ziqC8BLixzkif57.9d353ebaa113 --database g83Fqi2aox6KL2ahHS2B8M --execute CREATE TABLE `roadmap_goals` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`userId` int NOT NULL,\n\t`title` varchar(300) NOT NULL,\n\t`description` text,\n\t`category` enum('학업','비교과','입시','자기개발','기타') DEFAULT '기타',\n\t`status` enum('예정','진행중','완료') NOT NULL DEFAULT '예정',\n\t`priority` enum('높음','보통','낮음') DEFAULT '보통',\n\t`dueDate` timestamp,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `roadmap_goals_id` PRIMARY KEY(`id`)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1664
+}

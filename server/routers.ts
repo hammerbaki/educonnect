@@ -1,28 +1,486 @@
 import { COOKIE_NAME } from "@shared/const";
+import { TRPCError } from "@trpc/server";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { z } from "zod";
+import { invokeLLM } from "./_core/llm";
+import * as db from "./db";
+
+// Helper: safely extract string content from LLM response
+function extractLLMContent(response: any): string {
+  const content = response?.choices?.[0]?.message?.content;
+  return typeof content === "string" ? content : "";
+}
+
+// Helper: safe JSON parse with fallback
+function safeJsonParse<T>(text: string, fallback: T): T {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return fallback;
+  }
+}
+
+// Aptitude analysis response schema for validation
+const aptitudeResultSchema = z.object({
+  radarData: z.array(z.object({ category: z.string(), score: z.number() })),
+  recommendedMajors: z.array(z.object({ name: z.string(), matchRate: z.number(), description: z.string() })),
+  analysisText: z.string(),
+});
+
+const defaultAptitudeResult = {
+  radarData: [
+    { category: "인문학적 사고", score: 50 },
+    { category: "과학적 탐구", score: 50 },
+    { category: "수리적 분석", score: 50 },
+    { category: "예술적 감성", score: 50 },
+    { category: "사회적 소통", score: 50 },
+    { category: "기술적 응용", score: 50 },
+  ],
+  recommendedMajors: [
+    { name: "분석 실패", matchRate: 0, description: "AI 분석에 실패했습니다. 다시 시도해 주세요." },
+  ],
+  analysisText: "AI 분석 결과를 생성하지 못했습니다. 다시 시도해 주세요.",
+};
 
 export const appRouter = router({
-    // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
   auth: router({
-    me: publicProcedure.query(opts => opts.ctx.user),
+    me: publicProcedure.query((opts) => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-      return {
-        success: true,
-      } as const;
+      return { success: true } as const;
     }),
   }),
 
-  // TODO: add feature routers here, e.g.
-  // todo: router({
-  //   list: protectedProcedure.query(({ ctx }) =>
-  //     db.getUserTodos(ctx.user.id)
-  //   ),
-  // }),
+  // Student Profile
+  profile: router({
+    get: protectedProcedure.query(async ({ ctx }) => {
+      try {
+        return await db.getStudentProfile(ctx.user.id);
+      } catch (error) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "프로필 조회에 실패했습니다." });
+      }
+    }),
+    upsert: protectedProcedure
+      .input(
+        z.object({
+          grade: z.enum(["1", "2", "3"]).optional(),
+          school: z.string().optional(),
+          interestAreas: z.array(z.string()).optional(),
+          favoriteSubjects: z.array(z.string()).optional(),
+          weakSubjects: z.array(z.string()).optional(),
+          gpa: z.string().optional(),
+          targetUniversities: z.array(z.string()).optional(),
+          targetMajors: z.array(z.string()).optional(),
+          admissionType: z.enum(["수시", "정시", "미정"]).optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await db.upsertStudentProfile({ ...input, userId: ctx.user.id });
+        } catch (error) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "프로필 저장에 실패했습니다." });
+        }
+      }),
+  }),
+
+  // Aptitude Analysis
+  aptitude: router({
+    latest: protectedProcedure.query(async ({ ctx }) => {
+      return db.getLatestAptitudeAnalysis(ctx.user.id);
+    }),
+    list: protectedProcedure.query(async ({ ctx }) => {
+      return db.getAptitudeAnalyses(ctx.user.id);
+    }),
+    analyze: protectedProcedure
+      .input(z.object({ answers: z.record(z.string(), z.number()) }))
+      .mutation(async ({ ctx, input }) => {
+        const profile = await db.getStudentProfile(ctx.user.id);
+        const profileInfo = profile
+          ? `학년: ${profile.grade}, 관심분야: ${((profile.interestAreas as string[]) || []).join(", ")}, 좋아하는 과목: ${((profile.favoriteSubjects as string[]) || []).join(", ")}, 약한 과목: ${((profile.weakSubjects as string[]) || []).join(", ")}`
+          : "프로필 정보 없음";
+
+        const answersText = Object.entries(input.answers)
+          .map(([q, a]) => `${q}: ${a}/5`)
+          .join("\n");
+
+        let parsed = defaultAptitudeResult;
+        try {
+          const response = await invokeLLM({
+            messages: [
+              {
+                role: "system",
+                content: `당신은 한국 고등학생의 대학 전공 적성을 분석하는 전문 진로 상담사입니다. 학생의 설문 응답과 프로필을 바탕으로 전공 적성을 분석해주세요.
+
+반드시 아래 JSON 형식으로만 응답하세요:
+{
+  "radarData": [
+    {"category": "인문학적 사고", "score": 0-100},
+    {"category": "과학적 탐구", "score": 0-100},
+    {"category": "수리적 분석", "score": 0-100},
+    {"category": "예술적 감성", "score": 0-100},
+    {"category": "사회적 소통", "score": 0-100},
+    {"category": "기술적 응용", "score": 0-100}
+  ],
+  "recommendedMajors": [
+    {"name": "전공명", "matchRate": 0-100, "description": "추천 이유 설명 (2-3문장)"},
+    {"name": "전공명", "matchRate": 0-100, "description": "추천 이유 설명 (2-3문장)"},
+    {"name": "전공명", "matchRate": 0-100, "description": "추천 이유 설명 (2-3문장)"}
+  ],
+  "analysisText": "종합 분석 결과 (3-4문장으로 학생의 강점과 적성을 설명)"
+}`,
+              },
+              {
+                role: "user",
+                content: `학생 프로필: ${profileInfo}\n\n설문 응답:\n${answersText}`,
+              },
+            ],
+            response_format: { type: "json_object" },
+          });
+
+          const content = extractLLMContent(response);
+          const raw = safeJsonParse(content, null);
+          if (raw) {
+            const validated = aptitudeResultSchema.safeParse(raw);
+            if (validated.success) {
+              parsed = validated.data;
+            }
+          }
+        } catch (error) {
+          console.error("[Aptitude] LLM call failed:", error);
+          // Use default fallback result
+        }
+
+        try {
+          const analysis = await db.createAptitudeAnalysis({
+            userId: ctx.user.id,
+            surveyAnswers: input.answers,
+            radarData: parsed.radarData,
+            recommendedMajors: parsed.recommendedMajors,
+            analysisText: parsed.analysisText,
+          });
+          return analysis;
+        } catch (error) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "분석 결과 저장에 실패했습니다." });
+        }
+      }),
+  }),
+
+  // Roadmap Goals
+  roadmap: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      return db.getRoadmapGoals(ctx.user.id);
+    }),
+    create: protectedProcedure
+      .input(
+        z.object({
+          title: z.string().min(1),
+          description: z.string().optional(),
+          category: z.enum(["학업", "비교과", "입시", "자기개발", "기타"]).optional(),
+          priority: z.enum(["높음", "보통", "낮음"]).optional(),
+          dueDate: z.string().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await db.createRoadmapGoal({
+            ...input,
+            userId: ctx.user.id,
+            dueDate: input.dueDate ? new Date(input.dueDate) : undefined,
+          });
+        } catch (error) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "목표 추가에 실패했습니다." });
+        }
+      }),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          title: z.string().optional(),
+          description: z.string().optional(),
+          category: z.enum(["학업", "비교과", "입시", "자기개발", "기타"]).optional(),
+          status: z.enum(["예정", "진행중", "완료"]).optional(),
+          priority: z.enum(["높음", "보통", "낮음"]).optional(),
+          dueDate: z.string().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const { id, ...data } = input;
+        try {
+          await db.updateRoadmapGoal(id, ctx.user.id, {
+            ...data,
+            dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
+          });
+        } catch (error) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "목표 수정에 실패했습니다." });
+        }
+      }),
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          await db.deleteRoadmapGoal(input.id, ctx.user.id);
+        } catch (error) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "목표 삭제에 실패했습니다." });
+        }
+      }),
+  }),
+
+  // D-Day Events
+  dday: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      return db.getDdayEvents(ctx.user.id);
+    }),
+    create: protectedProcedure
+      .input(
+        z.object({
+          title: z.string().min(1),
+          eventDate: z.string(),
+          category: z.enum(["수능", "수시", "정시", "모의고사", "기타"]).optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await db.createDdayEvent({
+            ...input,
+            userId: ctx.user.id,
+            eventDate: new Date(input.eventDate),
+          });
+        } catch (error) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "D-Day 추가에 실패했습니다." });
+        }
+      }),
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          await db.deleteDdayEvent(input.id, ctx.user.id);
+        } catch (error) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "D-Day 삭제에 실패했습니다." });
+        }
+      }),
+  }),
+
+  // Documents
+  document: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      return db.getDocuments(ctx.user.id);
+    }),
+    get: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ ctx, input }) => {
+        return db.getDocument(input.id, ctx.user.id);
+      }),
+    create: protectedProcedure
+      .input(
+        z.object({
+          title: z.string().min(1),
+          docType: z.enum(["자기소개서", "생기부분석", "학업계획서"]).optional(),
+          content: z.string().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await db.createDocument({ ...input, userId: ctx.user.id });
+        } catch (error) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "서류 생성에 실패했습니다." });
+        }
+      }),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          title: z.string().optional(),
+          content: z.string().optional(),
+          aiSuggestion: z.string().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const { id, ...data } = input;
+        try {
+          await db.updateDocument(id, ctx.user.id, data);
+        } catch (error) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "서류 저장에 실패했습니다." });
+        }
+      }),
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          await db.deleteDocument(input.id, ctx.user.id);
+        } catch (error) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "서류 삭제에 실패했습니다." });
+        }
+      }),
+    aiGuide: protectedProcedure
+      .input(
+        z.object({
+          docType: z.enum(["자기소개서", "생기부분석", "학업계획서"]),
+          content: z.string(),
+          university: z.string().optional(),
+          major: z.string().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const profile = await db.getStudentProfile(ctx.user.id);
+        const profileInfo = profile
+          ? `학년: ${profile.grade}, 학교: ${profile.school || "미입력"}, 관심분야: ${((profile.interestAreas as string[]) || []).join(", ")}`
+          : "프로필 정보 없음";
+
+        try {
+          const response = await invokeLLM({
+            messages: [
+              {
+                role: "system",
+                content: `당신은 한국 대입 전형에 정통한 입시 컨설턴트입니다. 학생의 ${input.docType} 작성을 도와주세요.
+${input.university ? `지원 대학: ${input.university}` : ""}
+${input.major ? `지원 학과: ${input.major}` : ""}
+
+구체적이고 실용적인 피드백과 개선 제안을 한국어로 제공해주세요. 마크다운 형식으로 작성하되, 다음 구조를 따르세요:
+1. 전체 평가 (강점과 약점)
+2. 구체적 개선 제안 (3-5가지)
+3. 수정 예시 문장`,
+              },
+              {
+                role: "user",
+                content: `학생 프로필: ${profileInfo}\n\n현재 작성 내용:\n${input.content}`,
+              },
+            ],
+          });
+          const content = extractLLMContent(response);
+          return content || "분석 결과를 생성하지 못했습니다. 다시 시도해 주세요.";
+        } catch (error) {
+          console.error("[Document] AI guide failed:", error);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 첨삭 가이드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요." });
+        }
+      }),
+  }),
+
+  // Interview Practice
+  interview: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      return db.getInterviewSessions(ctx.user.id);
+    }),
+    get: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ ctx, input }) => {
+        return db.getInterviewSession(input.id, ctx.user.id);
+      }),
+    create: protectedProcedure
+      .input(
+        z.object({
+          university: z.string().optional(),
+          major: z.string().optional(),
+          interviewType: z.enum(["심층면접", "인성면접", "제시문면접"]).optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const profile = await db.getStudentProfile(ctx.user.id);
+        const systemMessage = {
+          role: "system" as const,
+          content: `당신은 ${input.university || "대학교"} ${input.major || ""} ${input.interviewType || "인성면접"} 면접관입니다.
+학생에게 면접 질문을 하나씩 제시하고, 답변에 대해 간단한 코멘트를 해주세요.
+첫 질문부터 시작하세요. 한국어로 대화합니다.
+${profile ? `학생 정보 - 학년: ${profile.grade}, 관심분야: ${((profile.interestAreas as string[]) || []).join(", ")}` : ""}`,
+        };
+
+        try {
+          const response = await invokeLLM({ messages: [systemMessage] });
+          const assistantContent = extractLLMContent(response) || "안녕하세요, 면접을 시작하겠습니다. 먼저 간단한 자기소개를 부탁드립니다.";
+          const messages = [
+            systemMessage,
+            { role: "assistant" as const, content: assistantContent },
+          ];
+
+          const session = await db.createInterviewSession({
+            ...input,
+            userId: ctx.user.id,
+            messages,
+          });
+          return session;
+        } catch (error) {
+          console.error("[Interview] Create session failed:", error);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "면접 세션 생성에 실패했습니다. 잠시 후 다시 시도해 주세요." });
+        }
+      }),
+    chat: protectedProcedure
+      .input(z.object({ sessionId: z.number(), message: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const session = await db.getInterviewSession(input.sessionId, ctx.user.id);
+        if (!session) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "면접 세션을 찾을 수 없습니다." });
+        }
+
+        const currentMessages = (session.messages || []) as { role: string; content: string }[];
+        const newMessages = [
+          ...currentMessages,
+          { role: "user" as const, content: input.message },
+        ];
+
+        try {
+          const response = await invokeLLM({
+            messages: newMessages.map((m) => ({
+              role: m.role as "system" | "user" | "assistant",
+              content: m.content,
+            })),
+          });
+
+          const assistantContent = extractLLMContent(response) || "죄송합니다, 응답을 생성하지 못했습니다. 다시 답변해 주세요.";
+          const updatedMessages = [
+            ...newMessages,
+            { role: "assistant" as const, content: assistantContent },
+          ];
+
+          await db.updateInterviewSession(input.sessionId, ctx.user.id, {
+            messages: updatedMessages,
+          });
+
+          return assistantContent;
+        } catch (error) {
+          console.error("[Interview] Chat failed:", error);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "면접 응답 생성에 실패했습니다. 잠시 후 다시 시도해 주세요." });
+        }
+      }),
+    feedback: protectedProcedure
+      .input(z.object({ sessionId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const session = await db.getInterviewSession(input.sessionId, ctx.user.id);
+        if (!session) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "면접 세션을 찾을 수 없습니다." });
+        }
+
+        const msgs = (session.messages || []) as { role: string; content: string }[];
+
+        try {
+          const response = await invokeLLM({
+            messages: [
+              ...msgs.map((m) => ({
+                role: m.role as "system" | "user" | "assistant",
+                content: m.content,
+              })),
+              {
+                role: "user" as const,
+                content: "면접이 끝났습니다. 지금까지의 면접 내용을 종합적으로 평가해주세요. 1) 전체 평가 점수(100점 만점), 2) 강점, 3) 개선점, 4) 구체적 조언을 마크다운 형식으로 작성해주세요.",
+              },
+            ],
+          });
+
+          const feedbackText = extractLLMContent(response) || "면접 평가를 생성하지 못했습니다.";
+
+          await db.updateInterviewSession(input.sessionId, ctx.user.id, {
+            feedback: feedbackText,
+          });
+
+          return feedbackText;
+        } catch (error) {
+          console.error("[Interview] Feedback failed:", error);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "면접 평가 생성에 실패했습니다. 잠시 후 다시 시도해 주세요." });
+        }
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

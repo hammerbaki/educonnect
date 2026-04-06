@@ -11,6 +11,9 @@ import Explore from "./pages/Explore";
 import Roadmap from "./pages/Roadmap";
 import Documents from "./pages/Documents";
 import Interview from "./pages/Interview";
+import Community from "./pages/Community";
+import CommunityPost from "./pages/CommunityPost";
+import CommunityWrite from "./pages/CommunityWrite";
 import MyPage from "./pages/MyPage";
 
 function Router() {
@@ -23,6 +26,9 @@ function Router() {
         <Route path="/roadmap" component={Roadmap} />
         <Route path="/documents" component={Documents} />
         <Route path="/interview" component={Interview} />
+        <Route path="/community" component={Community} />
+        <Route path="/community/post/:id" component={CommunityPost} />
+        <Route path="/community/write" component={CommunityWrite} />
         <Route path="/mypage" component={MyPage} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />

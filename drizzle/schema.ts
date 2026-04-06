@@ -109,3 +109,51 @@ export const interviewSessions = mysqlTable("interview_sessions", {
 
 export type InterviewSession = typeof interviewSessions.$inferSelect;
 export type InsertInterviewSession = typeof interviewSessions.$inferInsert;
+
+// 커뮤니티 게시글 테이블
+export const communityPosts = mysqlTable("community_posts", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  authorName: varchar("authorName", { length: 200 }),
+  category: mysqlEnum("category", ["입시정보", "학습질문", "전공탐색", "자유게시판", "합격수기"]).default("자유게시판").notNull(),
+  title: varchar("title", { length: 500 }).notNull(),
+  content: text("content").notNull(),
+  tags: json("tags").$type<string[]>(),
+  viewCount: int("viewCount").default(0).notNull(),
+  likeCount: int("likeCount").default(0).notNull(),
+  commentCount: int("commentCount").default(0).notNull(),
+  isPinned: int("isPinned").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type CommunityPost = typeof communityPosts.$inferSelect;
+export type InsertCommunityPost = typeof communityPosts.$inferInsert;
+
+// 커뮤니티 댓글 테이블
+export const communityComments = mysqlTable("community_comments", {
+  id: int("id").autoincrement().primaryKey(),
+  postId: int("postId").notNull(),
+  userId: int("userId").notNull(),
+  authorName: varchar("authorName", { length: 200 }),
+  content: text("content").notNull(),
+  parentId: int("parentId"),
+  likeCount: int("likeCount").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type CommunityComment = typeof communityComments.$inferSelect;
+export type InsertCommunityComment = typeof communityComments.$inferInsert;
+
+// 좋아요 테이블 (게시글 + 댓글 공용)
+export const communityLikes = mysqlTable("community_likes", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  targetType: mysqlEnum("targetType", ["post", "comment"]).notNull(),
+  targetId: int("targetId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type CommunityLike = typeof communityLikes.$inferSelect;
+export type InsertCommunityLike = typeof communityLikes.$inferInsert;

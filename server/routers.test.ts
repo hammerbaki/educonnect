@@ -375,3 +375,349 @@ describe("helper functions", () => {
     expect(result.radarData).toBeDefined();
   });
 });
+
+// Add community mocks
+vi.mock("./db", async (importOriginal) => {
+  const original = await importOriginal() as Record<string, unknown>;
+  return {
+    ...original,
+    getStudentProfile: vi.fn().mockResolvedValue(null),
+    upsertStudentProfile: vi.fn().mockResolvedValue(undefined),
+    getLatestAptitudeAnalysis: vi.fn().mockResolvedValue(null),
+    getAptitudeAnalyses: vi.fn().mockResolvedValue([]),
+    createAptitudeAnalysis: vi.fn().mockImplementation((data: any) => ({
+      id: 1,
+      ...data,
+      createdAt: new Date(),
+    })),
+    getRoadmapGoals: vi.fn().mockResolvedValue([]),
+    createRoadmapGoal: vi.fn().mockImplementation((data: any) => ({
+      id: 1,
+      ...data,
+      status: "예정",
+      createdAt: new Date(),
+    })),
+    updateRoadmapGoal: vi.fn().mockResolvedValue(undefined),
+    deleteRoadmapGoal: vi.fn().mockResolvedValue(undefined),
+    getDdayEvents: vi.fn().mockResolvedValue([]),
+    createDdayEvent: vi.fn().mockImplementation((data: any) => ({
+      id: 1,
+      ...data,
+      createdAt: new Date(),
+    })),
+    deleteDdayEvent: vi.fn().mockResolvedValue(undefined),
+    getDocuments: vi.fn().mockResolvedValue([]),
+    getDocument: vi.fn().mockResolvedValue(null),
+    createDocument: vi.fn().mockImplementation((data: any) => ({
+      id: 1,
+      ...data,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })),
+    updateDocument: vi.fn().mockResolvedValue(undefined),
+    deleteDocument: vi.fn().mockResolvedValue(undefined),
+    getInterviewSessions: vi.fn().mockResolvedValue([]),
+    getInterviewSession: vi.fn().mockResolvedValue(null),
+    createInterviewSession: vi.fn().mockImplementation((data: any) => ({
+      id: 1,
+      ...data,
+      createdAt: new Date(),
+    })),
+    updateInterviewSession: vi.fn().mockResolvedValue(undefined),
+    // Community mocks
+    getCommunityPosts: vi.fn().mockResolvedValue({ posts: [], total: 0 }),
+    getCommunityPost: vi.fn().mockResolvedValue(null),
+    getPopularPosts: vi.fn().mockResolvedValue([]),
+    createCommunityPost: vi.fn().mockImplementation((data: any) => ({
+      id: 1,
+      ...data,
+      viewCount: 0,
+      likeCount: 0,
+      commentCount: 0,
+      isPinned: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })),
+    updateCommunityPost: vi.fn().mockResolvedValue(undefined),
+    deleteCommunityPost: vi.fn().mockResolvedValue(undefined),
+    getCommentsByPostId: vi.fn().mockResolvedValue([]),
+    createCommunityComment: vi.fn().mockImplementation((data: any) => ({
+      id: 1,
+      ...data,
+      likeCount: 0,
+      createdAt: new Date(),
+    })),
+    deleteCommunityComment: vi.fn().mockResolvedValue(undefined),
+    toggleLike: vi.fn().mockResolvedValue({ liked: true }),
+    getUserLikes: vi.fn().mockResolvedValue([]),
+  };
+});
+
+describe("community.posts", () => {
+  it("returns posts list for public access", async () => {
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.community.posts({
+      sort: "latest",
+      page: 1,
+      limit: 10,
+    });
+    expect(result).toHaveProperty("posts");
+    expect(result).toHaveProperty("total");
+    expect(Array.isArray(result.posts)).toBe(true);
+  });
+
+  it("returns posts with category filter", async () => {
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.community.posts({
+      category: "입시정보",
+    });
+    expect(result).toHaveProperty("posts");
+  });
+
+  it("returns posts with search query", async () => {
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.community.posts({
+      search: "수능",
+    });
+    expect(result).toHaveProperty("posts");
+  });
+});
+
+describe("community.post", () => {
+  it("throws NOT_FOUND for non-existent post", async () => {
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(caller.community.post({ id: 9999 })).rejects.toThrow();
+  });
+});
+
+describe("community.popular", () => {
+  it("returns popular posts for public access", async () => {
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.community.popular({ limit: 5 });
+    expect(Array.isArray(result)).toBe(true);
+  });
+});
+
+describe("community.create", () => {
+  it("rejects unauthenticated post creation", async () => {
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.community.create({
+        title: "테스트 게시글",
+        content: "테스트 내용입니다.",
+      })
+    ).rejects.toThrow();
+  });
+
+  it("creates a post for authenticated user", async () => {
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.community.create({
+      title: "수시 원서 접수 팁 공유",
+      content: "수시 원서 접수 시 주의할 점을 공유합니다.",
+      category: "입시정보",
+      tags: ["수시", "원서접수"],
+    });
+    expect(result).toBeTruthy();
+    expect(result.title).toBe("수시 원서 접수 팁 공유");
+  });
+
+  it("rejects empty title", async () => {
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.community.create({ title: "", content: "내용" })
+    ).rejects.toThrow();
+  });
+
+  it("rejects empty content", async () => {
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.community.create({ title: "제목", content: "" })
+    ).rejects.toThrow();
+  });
+
+  it("validates category enum", async () => {
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.community.create({
+        title: "테스트",
+        content: "내용",
+        category: "잘못된카테고리" as any,
+      })
+    ).rejects.toThrow();
+  });
+});
+
+describe("community.update", () => {
+  it("rejects unauthenticated update", async () => {
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.community.update({ id: 1, title: "수정된 제목" })
+    ).rejects.toThrow();
+  });
+
+  it("allows authenticated user to update post", async () => {
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.community.update({
+        id: 1,
+        title: "수정된 제목",
+        content: "수정된 내용",
+      })
+    ).resolves.not.toThrow();
+  });
+});
+
+describe("community.delete", () => {
+  it("rejects unauthenticated delete", async () => {
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(caller.community.delete({ id: 1 })).rejects.toThrow();
+  });
+
+  it("allows authenticated user to delete post", async () => {
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(caller.community.delete({ id: 1 })).resolves.not.toThrow();
+  });
+});
+
+describe("community.comments", () => {
+  it("returns comments for public access", async () => {
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.community.comments({ postId: 1 });
+    expect(Array.isArray(result)).toBe(true);
+  });
+});
+
+describe("community.addComment", () => {
+  it("rejects unauthenticated comment", async () => {
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.community.addComment({ postId: 1, content: "댓글" })
+    ).rejects.toThrow();
+  });
+
+  it("creates a comment for authenticated user", async () => {
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.community.addComment({
+      postId: 1,
+      content: "좋은 정보 감사합니다!",
+    });
+    expect(result).toBeTruthy();
+    expect(result.content).toBe("좋은 정보 감사합니다!");
+  });
+
+  it("creates a reply to a comment", async () => {
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.community.addComment({
+      postId: 1,
+      content: "저도 동의합니다.",
+      parentId: 1,
+    });
+    expect(result).toBeTruthy();
+    expect(result.parentId).toBe(1);
+  });
+
+  it("rejects empty comment content", async () => {
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.community.addComment({ postId: 1, content: "" })
+    ).rejects.toThrow();
+  });
+});
+
+describe("community.deleteComment", () => {
+  it("rejects unauthenticated comment deletion", async () => {
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.community.deleteComment({ id: 1, postId: 1 })
+    ).rejects.toThrow();
+  });
+
+  it("allows authenticated user to delete own comment", async () => {
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.community.deleteComment({ id: 1, postId: 1 })
+    ).resolves.not.toThrow();
+  });
+});
+
+describe("community.toggleLike", () => {
+  it("rejects unauthenticated like toggle", async () => {
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.community.toggleLike({ targetType: "post", targetId: 1 })
+    ).rejects.toThrow();
+  });
+
+  it("toggles like for authenticated user", async () => {
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.community.toggleLike({
+      targetType: "post",
+      targetId: 1,
+    });
+    expect(result).toHaveProperty("liked");
+  });
+
+  it("toggles comment like", async () => {
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.community.toggleLike({
+      targetType: "comment",
+      targetId: 1,
+    });
+    expect(result).toHaveProperty("liked");
+  });
+
+  it("validates targetType enum", async () => {
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.community.toggleLike({
+        targetType: "invalid" as any,
+        targetId: 1,
+      })
+    ).rejects.toThrow();
+  });
+});
+
+describe("community.userLikes", () => {
+  it("rejects unauthenticated access", async () => {
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.community.userLikes({ targetType: "post", targetIds: [1, 2] })
+    ).rejects.toThrow();
+  });
+
+  it("returns user likes for authenticated user", async () => {
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.community.userLikes({
+      targetType: "post",
+      targetIds: [1, 2, 3],
+    });
+    expect(Array.isArray(result)).toBe(true);
+  });
+});

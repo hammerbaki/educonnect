@@ -33,6 +33,7 @@ import {
   MessageSquare,
   UserCircle,
   GraduationCap,
+  Users,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -46,6 +47,7 @@ const menuItems = [
   { icon: Map, label: "입시 로드맵", path: "/roadmap" },
   { icon: FileText, label: "생기부/자소서", path: "/documents" },
   { icon: MessageSquare, label: "면접 연습", path: "/interview" },
+  { icon: Users, label: "커뮤니티", path: "/community" },
   { icon: UserCircle, label: "마이페이지", path: "/mypage" },
 ];
 

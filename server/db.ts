@@ -1,5 +1,6 @@
 import { eq, desc, and } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import { sql } from "drizzle-orm";
 import {
   InsertUser,
   users,
@@ -15,6 +16,11 @@ import {
   InsertDocument,
   interviewSessions,
   InsertInterviewSession,
+  communityPosts,
+  InsertCommunityPost,
+  communityComments,
+  InsertCommunityComment,
+  communityLikes,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -231,4 +237,149 @@ export async function updateInterviewSession(id: number, userId: number, data: P
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.update(interviewSessions).set(data).where(and(eq(interviewSessions.id, id), eq(interviewSessions.userId, userId)));
+}
+
+// ---- Community Posts ----
+export async function getCommunityPosts(options: {
+  category?: string;
+  search?: string;
+  tag?: string;
+  sort?: "latest" | "popular";
+  page?: number;
+  limit?: number;
+}) {
+  const db = await getDb();
+  if (!db) return { posts: [], total: 0 };
+  const { category, search, tag, sort = "latest", page = 1, limit = 20 } = options;
+  const offset = (page - 1) * limit;
+
+  const conditions = [];
+  if (category && category !== "all") {
+    conditions.push(eq(communityPosts.category, category as any));
+  }
+  if (search) {
+    conditions.push(sql`(${communityPosts.title} LIKE ${`%${search}%`} OR ${communityPosts.content} LIKE ${`%${search}%`})`);
+  }
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  const orderClause = sort === "popular" ? desc(communityPosts.likeCount) : desc(communityPosts.createdAt);
+
+  const posts = await db
+    .select()
+    .from(communityPosts)
+    .where(whereClause)
+    .orderBy(desc(communityPosts.isPinned), orderClause)
+    .limit(limit)
+    .offset(offset);
+
+  const countResult = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(communityPosts)
+    .where(whereClause);
+  const total = countResult[0]?.count ?? 0;
+
+  return { posts, total };
+}
+
+export async function getCommunityPost(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  // Increment view count
+  await db.update(communityPosts).set({ viewCount: sql`${communityPosts.viewCount} + 1` }).where(eq(communityPosts.id, id));
+  const result = await db.select().from(communityPosts).where(eq(communityPosts.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function createCommunityPost(data: InsertCommunityPost) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(communityPosts).values(data);
+  return { ...data, id: Number(result[0].insertId), viewCount: 0, likeCount: 0, commentCount: 0, isPinned: 0, createdAt: new Date(), updatedAt: new Date() };
+}
+
+export async function updateCommunityPost(id: number, userId: number, data: Partial<InsertCommunityPost>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(communityPosts).set(data).where(and(eq(communityPosts.id, id), eq(communityPosts.userId, userId)));
+}
+
+export async function deleteCommunityPost(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  // Delete related comments and likes
+  await db.delete(communityComments).where(eq(communityComments.postId, id));
+  await db.delete(communityLikes).where(and(eq(communityLikes.targetType, "post"), eq(communityLikes.targetId, id)));
+  await db.delete(communityPosts).where(and(eq(communityPosts.id, id), eq(communityPosts.userId, userId)));
+}
+
+// ---- Community Comments ----
+export async function getCommentsByPostId(postId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(communityComments).where(eq(communityComments.postId, postId)).orderBy(communityComments.createdAt);
+}
+
+export async function createCommunityComment(data: InsertCommunityComment) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(communityComments).values(data);
+  // Update comment count
+  await db.update(communityPosts).set({ commentCount: sql`${communityPosts.commentCount} + 1` }).where(eq(communityPosts.id, data.postId));
+  return { ...data, id: Number(result[0].insertId), likeCount: 0, createdAt: new Date(), updatedAt: new Date() };
+}
+
+export async function deleteCommunityComment(id: number, userId: number, postId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(communityComments).where(and(eq(communityComments.id, id), eq(communityComments.userId, userId)));
+  // Update comment count
+  await db.update(communityPosts).set({ commentCount: sql`GREATEST(${communityPosts.commentCount} - 1, 0)` }).where(eq(communityPosts.id, postId));
+}
+
+// ---- Community Likes ----
+export async function toggleLike(userId: number, targetType: "post" | "comment", targetId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await db.select().from(communityLikes)
+    .where(and(eq(communityLikes.userId, userId), eq(communityLikes.targetType, targetType), eq(communityLikes.targetId, targetId)))
+    .limit(1);
+
+  if (existing.length > 0) {
+    // Unlike
+    await db.delete(communityLikes).where(eq(communityLikes.id, existing[0].id));
+    if (targetType === "post") {
+      await db.update(communityPosts).set({ likeCount: sql`GREATEST(${communityPosts.likeCount} - 1, 0)` }).where(eq(communityPosts.id, targetId));
+    } else {
+      await db.update(communityComments).set({ likeCount: sql`GREATEST(${communityComments.likeCount} - 1, 0)` }).where(eq(communityComments.id, targetId));
+    }
+    return { liked: false };
+  } else {
+    // Like
+    await db.insert(communityLikes).values({ userId, targetType, targetId });
+    if (targetType === "post") {
+      await db.update(communityPosts).set({ likeCount: sql`${communityPosts.likeCount} + 1` }).where(eq(communityPosts.id, targetId));
+    } else {
+      await db.update(communityComments).set({ likeCount: sql`${communityComments.likeCount} + 1` }).where(eq(communityComments.id, targetId));
+    }
+    return { liked: true };
+  }
+}
+
+export async function getUserLikes(userId: number, targetType: "post" | "comment", targetIds: number[]) {
+  const db = await getDb();
+  if (!db) return [];
+  if (targetIds.length === 0) return [];
+  const result = await db.select().from(communityLikes)
+    .where(and(
+      eq(communityLikes.userId, userId),
+      eq(communityLikes.targetType, targetType),
+      sql`${communityLikes.targetId} IN (${sql.join(targetIds.map(id => sql`${id}`), sql`, `)})`
+    ));
+  return result.map(r => r.targetId);
+}
+
+export async function getPopularPosts(limit: number = 5) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(communityPosts).orderBy(desc(communityPosts.likeCount)).limit(limit);
 }

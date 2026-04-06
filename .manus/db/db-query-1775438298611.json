@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE `community_comments` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`postId` int NOT NULL,\n\t`userId` int NOT NULL,\n\t`authorName` varchar(200),\n\t`content` text NOT NULL,\n\t`parentId` int,\n\t`likeCount` int NOT NULL DEFAULT 0,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `community_comments_id` PRIMARY KEY(`id`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user ziqC8BLixzkif57.9d353ebaa113 --database g83Fqi2aox6KL2ahHS2B8M --execute CREATE TABLE `community_comments` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`postId` int NOT NULL,\n\t`userId` int NOT NULL,\n\t`authorName` varchar(200),\n\t`content` text NOT NULL,\n\t`parentId` int,\n\t`likeCount` int NOT NULL DEFAULT 0,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `community_comments_id` PRIMARY KEY(`id`)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1626
+}

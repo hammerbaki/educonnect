@@ -359,6 +359,107 @@ ${input.major ? `지원 학과: ${input.major}` : ""}
       }),
   }),
 
+  // Community
+  community: router({
+    posts: publicProcedure
+      .input(z.object({
+        category: z.string().optional(),
+        search: z.string().optional(),
+        tag: z.string().optional(),
+        sort: z.enum(["latest", "popular"]).optional(),
+        page: z.number().optional(),
+        limit: z.number().optional(),
+      }).optional())
+      .query(async ({ input }) => {
+        return db.getCommunityPosts(input ?? {});
+      }),
+    post: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const post = await db.getCommunityPost(input.id);
+        if (!post) throw new TRPCError({ code: "NOT_FOUND", message: "게시글을 찾을 수 없습니다." });
+        return post;
+      }),
+    popular: publicProcedure
+      .input(z.object({ limit: z.number().optional() }).optional())
+      .query(async ({ input }) => {
+        return db.getPopularPosts(input?.limit ?? 5);
+      }),
+    create: protectedProcedure
+      .input(z.object({
+        title: z.string().min(1, "제목을 입력해주세요"),
+        content: z.string().min(1, "내용을 입력해주세요"),
+        category: z.enum(["입시정보", "학습질문", "전공탐색", "자유게시판", "합격수기"]).optional(),
+        tags: z.array(z.string()).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        return db.createCommunityPost({
+          ...input,
+          userId: ctx.user.id,
+          authorName: ctx.user.name || "익명",
+        });
+      }),
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        title: z.string().min(1).optional(),
+        content: z.string().min(1).optional(),
+        category: z.enum(["입시정보", "학습질문", "전공탐색", "자유게시판", "합격수기"]).optional(),
+        tags: z.array(z.string()).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { id, ...data } = input;
+        await db.updateCommunityPost(id, ctx.user.id, data);
+      }),
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await db.deleteCommunityPost(input.id, ctx.user.id);
+      }),
+    // Comments
+    comments: publicProcedure
+      .input(z.object({ postId: z.number() }))
+      .query(async ({ input }) => {
+        return db.getCommentsByPostId(input.postId);
+      }),
+    addComment: protectedProcedure
+      .input(z.object({
+        postId: z.number(),
+        content: z.string().min(1, "댓글 내용을 입력해주세요"),
+        parentId: z.number().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        return db.createCommunityComment({
+          ...input,
+          userId: ctx.user.id,
+          authorName: ctx.user.name || "익명",
+          parentId: input.parentId ?? null,
+        });
+      }),
+    deleteComment: protectedProcedure
+      .input(z.object({ id: z.number(), postId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await db.deleteCommunityComment(input.id, ctx.user.id, input.postId);
+      }),
+    // Likes
+    toggleLike: protectedProcedure
+      .input(z.object({
+        targetType: z.enum(["post", "comment"]),
+        targetId: z.number(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        return db.toggleLike(ctx.user.id, input.targetType, input.targetId);
+      }),
+    userLikes: protectedProcedure
+      .input(z.object({
+        targetType: z.enum(["post", "comment"]),
+        targetIds: z.array(z.number()),
+      }))
+      .query(async ({ ctx, input }) => {
+        return db.getUserLikes(ctx.user.id, input.targetType, input.targetIds);
+      }),
+  }),
+
   // Interview Practice
   interview: router({
     list: protectedProcedure.query(async ({ ctx }) => {

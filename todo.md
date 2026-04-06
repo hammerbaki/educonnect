@@ -34,3 +34,11 @@
 - [x] 학과/직업 탐색을 비로그인 상태에서도 열람 가능하게 변경
 - [x] DashboardLayout에서 비로그인 사용자 처리 (로그인 강제 리다이렉트 제거)
 - [x] 백엔드 커뮤니티/탐색 프로시저를 publicProcedure로 변경 (이미 public)
+- [x] D-Day 알림: 주요 입시 일정 프리셋 백엔드 구현 (10개 프리셋 일정)
+- [x] D-Day 알림: 다가오는 일정 알림 배너/토스트 표시
+- [x] D-Day 알림: 대시보드 D-Day 위젯 강화 (카운트다운, 긴급도 색상, 정렬)
+- [x] D-Day 알림: 알림 설정 백엔드 구현 (alertEnabled, alertDaysBefore, update)
+- [x] D-Day 알림: 백엔드 프로시저 추가 (alerts, update, addPresets, DB 헬퍼)
+- [x] D-Day 알림: Vitest 테스트 작성 (74개 테스트 전체 통과)
+- [x] D-Day 알림: 프리셋 일정 자동 등록 UI (Roadmap에서 addPresets 호출 버튼)
+- [x] D-Day 알림: 알림 설정 UI (event별 alertEnabled 토글, alertDaysBefore 입력)

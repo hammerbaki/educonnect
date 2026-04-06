@@ -15,6 +15,9 @@ import {
   ArrowRight,
   Sparkles,
   Clock,
+  Bell,
+  AlertTriangle,
+  X,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import {
@@ -25,15 +28,34 @@ import {
   Radar,
   ResponsiveContainer,
 } from "recharts";
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
 
 export default function Home() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
+  const [dismissedAlerts, setDismissedAlerts] = useState<number[]>([]);
 
   const { data: latestAnalysis } = trpc.aptitude.latest.useQuery();
   const { data: goals } = trpc.roadmap.list.useQuery();
   const { data: ddayEvents } = trpc.dday.list.useQuery();
   const { data: documents } = trpc.document.list.useQuery();
+  const { data: alerts } = trpc.dday.alerts.useQuery();
+
+  // Show toast for urgent alerts on mount
+  useEffect(() => {
+    if (alerts && alerts.length > 0) {
+      const urgent = alerts.filter((a: any) => a.daysUntil <= 3);
+      urgent.forEach((alert: any) => {
+        if (!dismissedAlerts.includes(alert.id)) {
+          toast.warning(`${alert.title}까지 ${alert.daysUntil === 0 ? "오늘입니다!" : `${alert.daysUntil}일 남았습니다!`}`, {
+            duration: 8000,
+            id: `dday-alert-${alert.id}`,
+          });
+        }
+      });
+    }
+  }, [alerts]);
 
   const activeGoals = goals?.filter((g) => g.status !== "완료") || [];
   const completedGoals = goals?.filter((g) => g.status === "완료") || [];
@@ -53,6 +75,30 @@ export default function Home() {
     if (diff === 0) return "D-Day";
     if (diff > 0) return `D-${diff}`;
     return `D+${Math.abs(diff)}`;
+  };
+
+  const getDdayDiff = (eventDate: Date | string) => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const target = new Date(eventDate);
+    target.setHours(0, 0, 0, 0);
+    return Math.ceil(
+      (target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+    );
+  };
+
+  const getUrgencyStyle = (diff: number) => {
+    if (diff <= 0) return "bg-red-100 text-red-700 border-red-200";
+    if (diff <= 7) return "bg-orange-100 text-orange-700 border-orange-200";
+    if (diff <= 30) return "bg-amber-100 text-amber-700 border-amber-200";
+    return "bg-pastel-blue-light/50 text-primary border-transparent";
+  };
+
+  const getUrgencyBadge = (diff: number) => {
+    if (diff <= 0) return "bg-red-500 text-white";
+    if (diff <= 7) return "bg-orange-500 text-white";
+    if (diff <= 30) return "bg-amber-500 text-white";
+    return "bg-primary text-white";
   };
 
   const getGreeting = () => {
@@ -93,8 +139,77 @@ export default function Home() {
     },
   ];
 
+  // Active (non-dismissed) alerts for banner
+  const activeAlerts = (alerts || []).filter(
+    (a: any) => !dismissedAlerts.includes(a.id)
+  );
+
+  // Sort D-Day events by proximity
+  const sortedDdayEvents = [...(ddayEvents || [])].sort((a, b) => {
+    const diffA = getDdayDiff(a.eventDate);
+    const diffB = getDdayDiff(b.eventDate);
+    // Show upcoming first (positive), then past (negative)
+    if (diffA >= 0 && diffB < 0) return -1;
+    if (diffA < 0 && diffB >= 0) return 1;
+    return Math.abs(diffA) - Math.abs(diffB);
+  });
+
   return (
     <div className="space-y-6 max-w-6xl">
+      {/* Alert Banner */}
+      {activeAlerts.length > 0 && (
+        <div className="space-y-2">
+          {activeAlerts.slice(0, 3).map((alert: any) => {
+            const isUrgent = alert.daysUntil <= 3;
+            return (
+              <div
+                key={alert.id}
+                className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                  isUrgent
+                    ? "bg-red-50 border-red-200"
+                    : alert.daysUntil <= 7
+                      ? "bg-orange-50 border-orange-200"
+                      : "bg-amber-50 border-amber-200"
+                }`}
+              >
+                {isUrgent ? (
+                  <AlertTriangle className={`h-4 w-4 shrink-0 ${isUrgent ? "text-red-500" : "text-amber-500"}`} />
+                ) : (
+                  <Bell className="h-4 w-4 shrink-0 text-amber-500" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-medium ${isUrgent ? "text-red-700" : alert.daysUntil <= 7 ? "text-orange-700" : "text-amber-700"}`}>
+                    {alert.title}
+                  </p>
+                  <p className={`text-xs ${isUrgent ? "text-red-600" : alert.daysUntil <= 7 ? "text-orange-600" : "text-amber-600"}`}>
+                    {alert.daysUntil === 0
+                      ? "오늘입니다!"
+                      : `${alert.daysUntil}일 남았습니다`}
+                    {" · "}
+                    {new Date(alert.eventDate).toLocaleDateString("ko-KR", {
+                      month: "long",
+                      day: "numeric",
+                      weekday: "short",
+                    })}
+                  </p>
+                </div>
+                <Badge className={getUrgencyBadge(alert.daysUntil)}>
+                  {getDday(alert.eventDate)}
+                </Badge>
+                <button
+                  onClick={() =>
+                    setDismissedAlerts((prev) => [...prev, alert.id])
+                  }
+                  className="shrink-0 p-1 rounded-lg hover:bg-black/5 transition-colors"
+                >
+                  <X className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Welcome Banner */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/5 via-pastel-blue-light/40 to-pastel-pink-light/30 p-6 md:p-8">
         {/* Decorative shapes */}
@@ -280,39 +395,67 @@ export default function Home() {
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base font-semibold flex items-center gap-2">
                   <CalendarDays className="h-4 w-4 text-primary" />
-                  D-Day
+                  D-Day 카운트다운
                 </CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs text-muted-foreground hover:text-primary"
+                  onClick={() => setLocation("/roadmap")}
+                >
+                  관리 <ArrowRight className="ml-1 h-3 w-3" />
+                </Button>
               </div>
             </CardHeader>
             <CardContent className="space-y-2">
-              {ddayEvents && ddayEvents.length > 0 ? (
-                ddayEvents.slice(0, 4).map((event) => (
-                  <div
-                    key={event.id}
-                    className="flex items-center justify-between p-3 rounded-xl bg-muted/40"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">
-                        {event.title}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(event.eventDate).toLocaleDateString("ko-KR")}
-                      </p>
-                    </div>
-                    <Badge
-                      variant="secondary"
-                      className="shrink-0 font-bold text-primary bg-pastel-blue-light/50"
+              {sortedDdayEvents.length > 0 ? (
+                sortedDdayEvents.slice(0, 5).map((event) => {
+                  const diff = getDdayDiff(event.eventDate);
+                  const urgencyStyle = getUrgencyStyle(diff);
+                  return (
+                    <div
+                      key={event.id}
+                      className={`flex items-center justify-between p-3 rounded-xl border transition-all ${urgencyStyle}`}
                     >
-                      {getDday(event.eventDate)}
-                    </Badge>
-                  </div>
-                ))
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          {diff <= 7 && diff >= 0 && (
+                            <Bell className="h-3 w-3 shrink-0" />
+                          )}
+                          <p className="text-sm font-medium truncate">
+                            {event.title}
+                          </p>
+                        </div>
+                        <p className="text-xs opacity-70 mt-0.5">
+                          {new Date(event.eventDate).toLocaleDateString("ko-KR", {
+                            month: "long",
+                            day: "numeric",
+                            weekday: "short",
+                          })}
+                        </p>
+                      </div>
+                      <Badge
+                        className={`shrink-0 font-bold ${getUrgencyBadge(diff)}`}
+                      >
+                        {getDday(event.eventDate)}
+                      </Badge>
+                    </div>
+                  );
+                })
               ) : (
                 <div className="text-center py-6">
                   <Clock className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-muted-foreground mb-3">
                     등록된 일정이 없어요
                   </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl text-xs"
+                    onClick={() => setLocation("/roadmap")}
+                  >
+                    일정 등록하기
+                  </Button>
                 </div>
               )}
             </CardContent>

@@ -73,6 +73,10 @@ export const ddayEvents = mysqlTable("dday_events", {
   title: varchar("title", { length: 200 }).notNull(),
   eventDate: timestamp("eventDate").notNull(),
   category: mysqlEnum("category", ["수능", "수시", "정시", "모의고사", "기타"]).default("기타"),
+  alertEnabled: int("alertEnabled").default(1).notNull(),
+  alertDaysBefore: int("alertDaysBefore").default(7).notNull(),
+  isPreset: int("isPreset").default(0).notNull(),
+  memo: varchar("memo", { length: 500 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

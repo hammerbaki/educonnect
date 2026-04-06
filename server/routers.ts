@@ -235,12 +235,18 @@ export const appRouter = router({
     list: protectedProcedure.query(async ({ ctx }) => {
       return db.getDdayEvents(ctx.user.id);
     }),
+    alerts: protectedProcedure.query(async ({ ctx }) => {
+      return db.getUpcomingAlerts(ctx.user.id);
+    }),
     create: protectedProcedure
       .input(
         z.object({
           title: z.string().min(1),
           eventDate: z.string(),
           category: z.enum(["수능", "수시", "정시", "모의고사", "기타"]).optional(),
+          alertEnabled: z.number().optional(),
+          alertDaysBefore: z.number().min(1).max(365).optional(),
+          memo: z.string().optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -254,6 +260,28 @@ export const appRouter = router({
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "D-Day 추가에 실패했습니다." });
         }
       }),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          alertEnabled: z.number().optional(),
+          alertDaysBefore: z.number().min(1).max(365).optional(),
+          memo: z.string().optional(),
+          title: z.string().optional(),
+          eventDate: z.string().optional(),
+          category: z.enum(["수능", "수시", "정시", "모의고사", "기타"]).optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const { id, eventDate, ...rest } = input;
+          const updateData: any = { ...rest };
+          if (eventDate) updateData.eventDate = new Date(eventDate);
+          await db.updateDdayEvent(id, ctx.user.id, updateData);
+        } catch (error) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "D-Day 수정에 실패했습니다." });
+        }
+      }),
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
@@ -261,6 +289,30 @@ export const appRouter = router({
           await db.deleteDdayEvent(input.id, ctx.user.id);
         } catch (error) {
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "D-Day 삭제에 실패했습니다." });
+        }
+      }),
+    addPresets: protectedProcedure
+      .mutation(async ({ ctx }) => {
+        const presets = [
+          { title: "2027학년도 대학수학능력시험 (수능)", eventDate: new Date("2026-11-19"), category: "수능" as const, alertDaysBefore: 30 },
+          { title: "수시 원서접수 시작", eventDate: new Date("2026-09-09"), category: "수시" as const, alertDaysBefore: 14 },
+          { title: "수시 원서접수 마감", eventDate: new Date("2026-09-13"), category: "수시" as const, alertDaysBefore: 7 },
+          { title: "수시 합격자 발표 (예정)", eventDate: new Date("2026-12-12"), category: "수시" as const, alertDaysBefore: 3 },
+          { title: "정시 원서접수 시작 (예정)", eventDate: new Date("2027-01-02"), category: "정시" as const, alertDaysBefore: 14 },
+          { title: "정시 원서접수 마감 (예정)", eventDate: new Date("2027-01-06"), category: "정시" as const, alertDaysBefore: 7 },
+          { title: "6월 모의평가", eventDate: new Date("2026-06-04"), category: "모의고사" as const, alertDaysBefore: 14 },
+          { title: "9월 모의평가", eventDate: new Date("2026-09-02"), category: "모의고사" as const, alertDaysBefore: 14 },
+          { title: "학생부 기록 마감 (2학기)", eventDate: new Date("2026-08-31"), category: "기타" as const, alertDaysBefore: 14 },
+          { title: "수능 성적 통지", eventDate: new Date("2026-12-04"), category: "수능" as const, alertDaysBefore: 3 },
+        ];
+        try {
+          const result = await db.addPresetDdayEvents(
+            ctx.user.id,
+            presets.map(p => ({ ...p, userId: ctx.user.id, isPreset: 1, alertEnabled: 1 }))
+          );
+          return result;
+        } catch (error) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "프리셋 일정 추가에 실패했습니다." });
         }
       }),
   }),

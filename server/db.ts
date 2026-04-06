@@ -179,6 +179,47 @@ export async function deleteDdayEvent(id: number, userId: number) {
   await db.delete(ddayEvents).where(and(eq(ddayEvents.id, id), eq(ddayEvents.userId, userId)));
 }
 
+export async function updateDdayEvent(id: number, userId: number, data: Partial<Pick<InsertDdayEvent, 'alertEnabled' | 'alertDaysBefore' | 'memo' | 'title' | 'eventDate' | 'category'>>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(ddayEvents).set(data).where(and(eq(ddayEvents.id, id), eq(ddayEvents.userId, userId)));
+}
+
+export async function addPresetDdayEvents(userId: number, presets: InsertDdayEvent[]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  // Check existing presets to avoid duplicates
+  const existing = await db.select().from(ddayEvents).where(and(eq(ddayEvents.userId, userId), eq(ddayEvents.isPreset, 1)));
+  const existingTitles = new Set(existing.map(e => e.title));
+  const newPresets = presets.filter(p => !existingTitles.has(p.title));
+  if (newPresets.length === 0) return { added: 0 };
+  await db.insert(ddayEvents).values(newPresets);
+  return { added: newPresets.length };
+}
+
+export async function getUpcomingAlerts(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const events = await db.select().from(ddayEvents).where(
+    and(eq(ddayEvents.userId, userId), eq(ddayEvents.alertEnabled, 1))
+  ).orderBy(ddayEvents.eventDate);
+  
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  
+  return events.filter(event => {
+    const eventDate = new Date(event.eventDate);
+    eventDate.setHours(0, 0, 0, 0);
+    const daysUntil = Math.ceil((eventDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    return daysUntil >= 0 && daysUntil <= event.alertDaysBefore;
+  }).map(event => {
+    const eventDate = new Date(event.eventDate);
+    eventDate.setHours(0, 0, 0, 0);
+    const daysUntil = Math.ceil((eventDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    return { ...event, daysUntil };
+  });
+}
+
 // ---- Documents ----
 export async function getDocuments(userId: number) {
   const db = await getDb();

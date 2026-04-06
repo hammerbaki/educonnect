@@ -73,6 +73,9 @@ vi.mock("./db", () => ({
     createdAt: new Date(),
   })),
   deleteDdayEvent: vi.fn().mockResolvedValue(undefined),
+  updateDdayEvent: vi.fn().mockResolvedValue(undefined),
+  addPresetDdayEvents: vi.fn().mockResolvedValue({ added: 10 }),
+  getUpcomingAlerts: vi.fn().mockResolvedValue([]),
   getDocuments: vi.fn().mockResolvedValue([]),
   getDocument: vi.fn().mockResolvedValue(null),
   createDocument: vi.fn().mockImplementation((data) => ({
@@ -406,6 +409,9 @@ vi.mock("./db", async (importOriginal) => {
       createdAt: new Date(),
     })),
     deleteDdayEvent: vi.fn().mockResolvedValue(undefined),
+    updateDdayEvent: vi.fn().mockResolvedValue(undefined),
+    addPresetDdayEvents: vi.fn().mockResolvedValue({ added: 10 }),
+    getUpcomingAlerts: vi.fn().mockResolvedValue([]),
     getDocuments: vi.fn().mockResolvedValue([]),
     getDocument: vi.fn().mockResolvedValue(null),
     createDocument: vi.fn().mockImplementation((data: any) => ({
@@ -949,3 +955,161 @@ describe("explore.personalizedRecommend", () => {
   });
 });
 
+
+describe("dday - alerts and presets", () => {
+  it("returns upcoming alerts for authenticated user", async () => {
+    const { getUpcomingAlerts } = await import("./db");
+    const mockedAlerts = vi.mocked(getUpcomingAlerts);
+
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + 5);
+
+    mockedAlerts.mockResolvedValueOnce([
+      {
+        id: 1,
+        userId: 1,
+        title: "2027학년도 수능",
+        eventDate: futureDate,
+        category: "수능",
+        isPreset: 1,
+        alertEnabled: 1,
+        alertDaysBefore: 30,
+        memo: null,
+        createdAt: new Date(),
+        daysUntil: 5,
+      },
+    ]);
+
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.dday.alerts();
+
+    expect(Array.isArray(result)).toBe(true);
+    expect(result.length).toBe(1);
+    expect(result[0].title).toBe("2027학년도 수능");
+    expect(result[0].daysUntil).toBe(5);
+  });
+
+  it("rejects unauthenticated access to alerts", async () => {
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(caller.dday.alerts()).rejects.toThrow();
+  });
+
+  it("adds preset events for authenticated user", async () => {
+    const { addPresetDdayEvents } = await import("./db");
+    const mockedAddPresets = vi.mocked(addPresetDdayEvents);
+    mockedAddPresets.mockResolvedValueOnce({ added: 10 });
+
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.dday.addPresets();
+
+    expect(result).toEqual({ added: 10 });
+  });
+
+  it("rejects unauthenticated access to addPresets", async () => {
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(caller.dday.addPresets()).rejects.toThrow();
+  });
+
+  it("returns 0 added when all presets already exist", async () => {
+    const { addPresetDdayEvents } = await import("./db");
+    const mockedAddPresets = vi.mocked(addPresetDdayEvents);
+    mockedAddPresets.mockResolvedValueOnce({ added: 0 });
+
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.dday.addPresets();
+
+    expect(result).toEqual({ added: 0 });
+  });
+
+  it("updates dday event alert settings", async () => {
+    const { updateDdayEvent } = await import("./db");
+    const mockedUpdate = vi.mocked(updateDdayEvent);
+    mockedUpdate.mockResolvedValueOnce(undefined);
+
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.dday.update({
+        id: 1,
+        alertEnabled: 1,
+        alertDaysBefore: 14,
+      })
+    ).resolves.not.toThrow();
+  });
+
+  it("rejects unauthenticated access to update", async () => {
+    const { ctx } = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.dday.update({ id: 1, alertEnabled: 0 })
+    ).rejects.toThrow();
+  });
+
+  it("updates dday event with new title and date", async () => {
+    const { updateDdayEvent } = await import("./db");
+    const mockedUpdate = vi.mocked(updateDdayEvent);
+    mockedUpdate.mockResolvedValueOnce(undefined);
+
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.dday.update({
+        id: 1,
+        title: "수정된 일정",
+        eventDate: "2026-12-01",
+        category: "정시",
+      })
+    ).resolves.not.toThrow();
+  });
+
+  it("validates alertDaysBefore range (min 1, max 365)", async () => {
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.dday.update({ id: 1, alertDaysBefore: 0 })
+    ).rejects.toThrow();
+    await expect(
+      caller.dday.update({ id: 1, alertDaysBefore: 366 })
+    ).rejects.toThrow();
+  });
+
+  it("returns empty alerts when no events match", async () => {
+    const { getUpcomingAlerts } = await import("./db");
+    const mockedAlerts = vi.mocked(getUpcomingAlerts);
+    mockedAlerts.mockResolvedValueOnce([]);
+
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.dday.alerts();
+
+    expect(Array.isArray(result)).toBe(true);
+    expect(result.length).toBe(0);
+  });
+
+  it("handles addPresets DB failure gracefully", async () => {
+    const { addPresetDdayEvents } = await import("./db");
+    const mockedAddPresets = vi.mocked(addPresetDdayEvents);
+    mockedAddPresets.mockRejectedValueOnce(new Error("DB error"));
+
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(caller.dday.addPresets()).rejects.toThrow("프리셋 일정 추가에 실패했습니다.");
+  });
+
+  it("handles update DB failure gracefully", async () => {
+    const { updateDdayEvent } = await import("./db");
+    const mockedUpdate = vi.mocked(updateDdayEvent);
+    mockedUpdate.mockRejectedValueOnce(new Error("DB error"));
+
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.dday.update({ id: 1, alertEnabled: 1 })
+    ).rejects.toThrow("D-Day 수정에 실패했습니다.");
+  });
+});
